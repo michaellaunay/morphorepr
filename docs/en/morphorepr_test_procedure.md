@@ -1,27 +1,28 @@
-# MorphoRepr — Complete Test Procedure (v2)
-## Corrected and Publication-Ready Experimental Infrastructure
+# MorphoRepr — Complete Test Procedure (v3)
+## Robust and Publishable Experimental Infrastructure
 
 ---
 
 ## Guiding Principles
 
-Three structural rules before any code:
-
 **Rule 1 — Separation of roles**
-Claude Code is used for development, debugging, and supervision. The final experimental run is driven by `python orchestrator.py --config configs/run_v1.yaml` — deterministic, with no automatic code modification and no untraced agentic intervention.
+Claude Code is used for development, debugging, and supervision. The final experimental run is driven exclusively by `python orchestrator.py --config configs/run_v1.yaml` — deterministic, with no code modification and no untraced agentic intervention during execution.
 
 **Rule 2 — Three execution levels**
 
 | Mode | n features | Objective | Results |
 |------|-----------|-----------|---------|
-| Dev run | 5 | Plumbing, DB, parsing, batch, classifiers | Not scientific |
+| Dev run | 5 | Plumbing, DB, parsing, batch, classifiers | Non-scientific |
 | Pilot run | 30–50 | Calibrate prompts, thresholds, classifiers | Exploratory |
-| Full frozen run | 500 | Publication | Frozen after launch |
+| Full frozen run | 500 | Publication | Frozen before launch |
 
-If thresholds or prompts are adjusted after observing pilot run results, declare this explicitly as calibration in the paper. The full run starts only when all parameters are frozen.
+If thresholds or prompts are adjusted after observing the pilot-run results, this must be explicitly reported as calibration in the paper.
 
-**Rule 3 — Full freeze before full run**
-Fixed Git commit, frozen config, versioned and hashed prompts, fixed models, fixed temperature, documented seed, frozen corpus, frozen lexicon, outputs written once and never overwritten.
+**Rule 3 — Complete freeze before the full run**
+The Git commit is fixed and verified, the config is hashed, prompts are hashed with full SHA256, the corpus is hashed, the lexicon is hashed, and temperature is documented. When using `--resume`, all these values are checked again before resuming.
+
+**Rule 4 — No resume after code modification**
+If the code is modified after a phase failure, create a new `run_id` with a new Git commit. Never resume a run with a Git commit different from the one recorded for that run.
 
 ---
 
@@ -29,17 +30,17 @@ Fixed Git commit, frozen config, versioned and hashed prompts, fixed models, fix
 
 ```
 morphorepr-pipeline/
-├── CLAUDE.md                    ← Claude Code instructions (dev only)
+├── CLAUDE.md                        ← Claude Code instructions (dev/supervision only)
 ├── configs/
 │   ├── dev_run.yaml
 │   ├── pilot_run.yaml
-│   └── run_v1.yaml              ← frozen config for full run
+│   └── run_v1.yaml                  ← frozen full-run config
 ├── db/
-│   ├── schema.sql               ← complete versioned schema
-│   ├── features.db              ← SQLite corpus (never modify directly)
-│   └── lexicon.json             ← versioned lexicon
+│   ├── schema.sql
+│   ├── features.db
+│   └── lexicon.json
 ├── prompts/
-│   ├── label_agent_v1.txt       ← versioned prompts, read from files
+│   ├── label_agent_v1.txt
 │   ├── encoder_agent_v1.txt
 │   ├── predictor_agent_v1.txt
 │   ├── fidelity_judge_v1.txt
@@ -52,59 +53,69 @@ morphorepr-pipeline/
 │   ├── consistency.py
 │   ├── encoder.py
 │   ├── fidelity.py
-│   ├── steerer.py
+│   ├── steerer.py                   ← fully specified in Section 6
 │   ├── predictor.py
 │   ├── judge.py
 │   └── reporter.py
 ├── classifiers/
-│   ├── negation.py              ← robust property
-│   ├── tense.py                 ← robust property
-│   ├── code_presence.py         ← robust property
-│   ├── modality.py              ← robust property
-│   ├── valence.py               ← semi-robust property
+│   ├── negation.py
+│   ├── tense.py
+│   ├── code_presence.py
+│   ├── modality.py
+│   ├── valence.py
 │   └── calibration/
-│       ├── negation_test.json   ← 50 manually annotated examples
-│       └── valence_test.json
+│       ├── negation_test.json
+│       ├── tense_test.json
+│       ├── code_presence_test.json
+│       ├── modality_test.json
+│       ├── valence_test.json
+│       └── run_calibration.py
 ├── baselines/
 │   ├── nl_labels.py
 │   ├── semantic_regex.py
+│   ├── keyword_tags.py
 │   └── shuffled.py
 ├── utils/
-│   ├── db_utils.py              ← sole DB access point
-│   ├── api_utils.py             ← Batch API wrapper with retry
-│   ├── prompt_utils.py          ← prompt loading and hashing
-│   ├── config_utils.py          ← config loading and validation
-│   └── stats_utils.py           ← bootstrap CI95%, metrics
+│   ├── db_utils.py                  ← the only DB access point
+│   ├── api_utils.py                 ← Batch API wrapper
+│   ├── prompt_utils.py
+│   ├── config_utils.py
+│   ├── morphorepr_parser.py         ← single parser for all metrics
+│   └── stats_utils.py
 ├── tests/
-│   ├── test_parse.py
+│   ├── conftest.py                  ← temporary DB fixtures
+│   ├── test_parser.py
 │   ├── test_schema.py
-│   ├── test_classifiers.py
 │   ├── test_db.py
-│   ├── test_pipeline_e2e.py
-│   └── test_shuffle_baseline.py
-├── orchestrator.py              ← scientific run entry point
+│   ├── test_classifiers.py
+│   ├── test_shuffle_baseline.py
+│   └── test_pipeline_e2e.py
+├── orchestrator.py
 ├── requirements.txt
-└── checkpoints/                 ← immutable archives
+├── logs/
+└── checkpoints/
 ```
 
 ---
 
 ## 2. Frozen Configuration File
 
-All parameters for a run live in a single YAML file. The run reads it; it never modifies it.
-
 ```yaml
 # configs/run_v1.yaml
 
-run_id: "morphorepr_v1_20260610"
+run_id_prefix: "morphorepr_v1"
 description: "Full frozen run MorphoRepr v0.26 — 500 features"
 
-# Reproducibility
-git_commit: "FILL_BEFORE_LAUNCH"       # git rev-parse HEAD
-temperature: 0.3                        # Option A: measure intrinsic stability
-seed: 42                                # documented; not necessarily used by API
+# Reproducibility — git_commit will be checked at initialization
+git_commit: "FILL_BEFORE_LAUNCH"
 lexicon_version: "v1.0"
-corpus_frozen: true                     # features.db must not change after this flag
+corpus_frozen: true
+
+# Sampling — temperature is not sent to the API by default
+# to avoid 400 errors on some recent models
+sampling:
+  use_temperature: false
+  temperature: null      # documented for the paper, not sent to the API
 
 # Models (exact Anthropic API identifiers)
 models:
@@ -114,7 +125,7 @@ models:
   max_tokens_judgment: 800
   max_tokens_scoring: 400
 
-# Prompts (read from files, not modifiable after freeze)
+# Prompts
 prompts:
   label_agent:    "prompts/label_agent_v1.txt"
   encoder:        "prompts/encoder_agent_v1.txt"
@@ -127,14 +138,18 @@ splits:
   easy:   {n: 200, min_interp_score: 0.7}
   random: {n: 200, filter: "uniform"}
   hard:   {n: 100, max_interp_score: 0.5}
-primary_split: "random"                 # all go/no-go thresholds evaluated here
+primary_split: "random"
 
-# Steering
+# SAE steering
 steering:
-  magnitudes: [0, 2, 5, 10]            # dose-response curve
-  primary_magnitude: 5                  # primary magnitude for metrics
+  magnitudes: [0, 2, 5, 10]
+  primary_magnitude: 5
   n_probe_sentences: 20
-  n_subsample_for_curve: 50            # subsample for magnitudes 2 and 10
+  n_subsample_for_curve: 50
+  target_layer: "middle"         # "early" | "middle" | "late" — to be specified after pilot
+  intervention_space: "residual" # "residual" | "sae_latent"
+  token_position: "all"          # "all" | "last" | "content_only"
+  ood_threshold: 3.0             # standard-deviation factor for out-of-distribution detection
 
 # Baselines
 baselines:
@@ -143,20 +158,20 @@ baselines:
   - keyword_tags
   - morphorepr_shuffled
 
-# Shuffled MorphoRepr control
+# Shuffled control
 shuffle_control:
-  n_repeats: 10                         # shuffle repeated 10 times per feature
-  within_split: true                    # never cross-split
-  max_term_diff: 1                      # comparable length ±1 term
+  n_repeats: 10
+  within_split: true
+  max_term_diff: 1
   preserve_coefficients: true
 
-# Budget and auto-stop
+# Budget
 budget:
-  max_cost_usd: 100.0
-  alert_at_usd: 50.0
+  max_cost_usd: 150.0     # margin after pilot-run estimation
+  alert_at_usd: 75.0
   abort_on_exceed: true
 
-# Go/no-go thresholds (evaluated on random split)
+# Go/no-go thresholds (random split only)
 thresholds:
   coverage_easy_min: 0.65
   coverage_random_min: 0.45
@@ -170,11 +185,10 @@ thresholds:
 
 ---
 
-## 3. Complete SQLite Schema
+## 3. Complete SQLite Schema (v3)
 
 ```sql
--- db/schema.sql
--- Version 1.0 — never modify after full run
+-- db/schema.sql  —  Version 3, never modify after the full run
 
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -186,17 +200,36 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS runs (
     run_id          TEXT PRIMARY KEY,
     git_commit      TEXT NOT NULL,
-    config_hash     TEXT NOT NULL,    -- SHA256 of YAML file
-    prompt_hashes   TEXT NOT NULL,    -- JSON {agent: sha256}
+    config_hash     TEXT NOT NULL,
+    prompt_hashes   TEXT NOT NULL,    -- JSON {agent: full_sha256}
     lexicon_version TEXT NOT NULL,
-    models_json     TEXT NOT NULL,    -- JSON {agent: model_id}
-    temperature     REAL NOT NULL,
+    lexicon_hash    TEXT NOT NULL,    -- SHA256 of canonical lexicon.json export
+    corpus_hash     TEXT NOT NULL,    -- SHA256 of canonical CSV corpus export
+    models_json     TEXT NOT NULL,
+    use_temperature INTEGER NOT NULL DEFAULT 0,
+    temperature     REAL,             -- NULL if use_temperature=0
     seed            INTEGER,
     started_at      TEXT NOT NULL,
     completed_at    TEXT,
-    status          TEXT DEFAULT 'running',  -- running/completed/failed
+    status          TEXT DEFAULT 'running',
     last_phase      TEXT,
     total_cost_usd  REAL DEFAULT 0.0
+);
+
+-- ─────────────────────────────────────────────
+-- Submitted batch tracking (crash resume)
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS batches (
+    batch_id        TEXT PRIMARY KEY,
+    run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    phase           TEXT NOT NULL,
+    agent_name      TEXT NOT NULL,
+    run_number      INTEGER NOT NULL DEFAULT 1,
+    n_requests      INTEGER NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'submitted',  -- submitted/consumed/failed
+    submitted_at    TEXT NOT NULL,
+    consumed_at     TEXT
 );
 
 -- ─────────────────────────────────────────────
@@ -204,11 +237,11 @@ CREATE TABLE IF NOT EXISTS runs (
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS prompts (
-    prompt_id   TEXT PRIMARY KEY,     -- "{agent_name}_v{version}"
+    prompt_id   TEXT PRIMARY KEY,
     agent_name  TEXT NOT NULL,
     version     TEXT NOT NULL,
     content     TEXT NOT NULL,
-    sha256      TEXT NOT NULL,
+    sha256      TEXT NOT NULL,    -- full SHA256 (64 hex chars)
     created_at  TEXT NOT NULL
 );
 
@@ -218,9 +251,9 @@ CREATE TABLE IF NOT EXISTS prompts (
 
 CREATE TABLE IF NOT EXISTS features (
     feature_index   INTEGER PRIMARY KEY,
-    split           TEXT NOT NULL,    -- 'easy', 'random', 'hard'
+    split           TEXT NOT NULL,
     nl_description  TEXT NOT NULL,
-    top_examples    TEXT NOT NULL,    -- JSON array (serialized string)
+    top_examples    TEXT NOT NULL,    -- serialized JSON array
     score_interp    REAL,
     activation_freq REAL,
     layer           TEXT,
@@ -230,29 +263,29 @@ CREATE TABLE IF NOT EXISTS features (
 );
 
 -- ─────────────────────────────────────────────
--- Raw agent outputs (immutable)
+-- Raw outputs from each agent (immutable)
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS agent_outputs (
-    output_id       TEXT PRIMARY KEY,    -- UUID
+    output_id       TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
     feature_index   INTEGER NOT NULL REFERENCES features(feature_index),
     agent_name      TEXT NOT NULL,
-    run_number      INTEGER NOT NULL DEFAULT 1,  -- 1 or 2
-    output_json     TEXT,               -- parsed output (structured JSON)
-    raw_output      TEXT,               -- raw API output (never modified)
-    status          TEXT NOT NULL,      -- 'ok','uncovered','failed','invalid_json'
+    run_number      INTEGER NOT NULL DEFAULT 1,
+    output_json     TEXT,
+    raw_output      TEXT,
+    status          TEXT NOT NULL,
     error_msg       TEXT,
     tokens_input    INTEGER,
     tokens_output   INTEGER,
-    batch_id        TEXT,
+    batch_id        TEXT REFERENCES batches(batch_id),
     cost_usd        REAL,
-    coefficient_type TEXT DEFAULT 'confidence',  -- 'confidence' or 'activation'
+    coefficient_type TEXT DEFAULT 'confidence',
     created_at      TEXT NOT NULL
 );
 
 -- ─────────────────────────────────────────────
--- Computed metrics (results)
+-- Computed metrics
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS metrics (
@@ -265,7 +298,7 @@ CREATE TABLE IF NOT EXISTS metrics (
     ci_low          REAL,
     ci_high         REAL,
     n_samples       INTEGER,
-    baseline        TEXT,               -- NULL = MorphoRepr, else baseline name
+    baseline        TEXT,
     computed_at     TEXT NOT NULL
 );
 
@@ -287,23 +320,44 @@ CREATE TABLE IF NOT EXISTS baselines (
 );
 
 -- ─────────────────────────────────────────────
--- Shuffled control (10 shuffles per feature)
+-- Shuffled control
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS shuffle_controls (
-    shuffle_id      TEXT PRIMARY KEY,
+    shuffle_id      TEXT PRIMARY KEY,   -- deterministic: {run_id}_{fidx}_{num}
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
-    feature_index   INTEGER NOT NULL,
-    shuffle_number  INTEGER NOT NULL,   -- 1 to 10
-    source_feature  INTEGER NOT NULL,   -- feature whose annotation was borrowed
+    feature_index   INTEGER NOT NULL REFERENCES features(feature_index),
+    shuffle_number  INTEGER NOT NULL,
+    source_feature  INTEGER NOT NULL REFERENCES features(feature_index),
     annotation      TEXT NOT NULL,
     causal_score    REAL,
     causal_outcome  TEXT,
+    created_at      TEXT NOT NULL,
+    UNIQUE(run_id, feature_index, shuffle_number)   -- prevents logical duplicates
+);
+
+-- ─────────────────────────────────────────────
+-- Steering — before/after storage
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS steering_results (
+    result_id       TEXT PRIMARY KEY,
+    run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    feature_index   INTEGER NOT NULL,
+    magnitude       REAL NOT NULL,      -- 0, 2, 5, or 10
+    probe_id        INTEGER NOT NULL,   -- 1..20
+    text_before     TEXT NOT NULL,
+    text_after      TEXT NOT NULL,
+    layer           TEXT,
+    token_position  TEXT,
+    activation_before REAL,
+    activation_after  REAL,
+    ood_flag        INTEGER DEFAULT 0,  -- 1 if out of distribution
     created_at      TEXT NOT NULL
 );
 
 -- ─────────────────────────────────────────────
--- API cost tracking
+-- Cost tracking
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS api_usage (
@@ -326,48 +380,269 @@ CREATE TABLE IF NOT EXISTS api_usage (
 
 CREATE TABLE IF NOT EXISTS lexicon_versions (
     version         TEXT PRIMARY KEY,
-    morphemes       TEXT NOT NULL,      -- complete JSON
-    free_roots      TEXT NOT NULL,      -- JSON list
+    morphemes       TEXT NOT NULL,
+    free_roots      TEXT NOT NULL,
     features_per_root REAL,
     free_root_rate  REAL,
     base_coverage   REAL,
     free_coverage   REAL,
     entropy         REAL,
+    sha256          TEXT NOT NULL,
     created_at      TEXT NOT NULL
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_agent_outputs_feature
-    ON agent_outputs(feature_index, agent_name, run_number);
-CREATE INDEX IF NOT EXISTS idx_metrics_split
-    ON metrics(run_id, split, metric_name);
-CREATE INDEX IF NOT EXISTS idx_api_usage_phase
-    ON api_usage(run_id, phase);
+CREATE INDEX IF NOT EXISTS idx_ao_feature   ON agent_outputs(feature_index, agent_name, run_number);
+CREATE INDEX IF NOT EXISTS idx_metrics      ON metrics(run_id, split, metric_name);
+CREATE INDEX IF NOT EXISTS idx_api_phase    ON api_usage(run_id, phase);
+CREATE INDEX IF NOT EXISTS idx_steering     ON steering_results(run_id, feature_index, magnitude);
+CREATE INDEX IF NOT EXISTS idx_batches_run  ON batches(run_id, phase, agent_name, run_number);
 ```
 
 ---
 
-## 4. Core Utilities
+## 4. Single MorphoRepr Parser
 
-### 4.1 Database Access
+```python
+# utils/morphorepr_parser.py
+"""
+Deterministic MorphoRepr parser.
+Single source of truth for all morphemic metrics.
+
+Five-step algorithm for each word:
+  1. Remove the coefficient (before '·')
+  2. Read prefixes only at the beginning of the word
+  3. Read the suffix only at the end of the word
+  4. Detect infixes between hyphens in the remaining body
+  5. Extract the root as the remaining part
+
+Never use global str.replace() — always use positional parsing.
+"""
+from dataclasses import dataclass, field
+from typing import Optional
+import re
+
+# Complete inventory
+PREFIXES = ("mal-", "ne-", "pli-", "plej-", "duon-")
+INFIXES  = ("-ad-", "-int-", "-it-", "-ist-", "-ant-", "-at-", "-ig-", "-iĝ-")
+TENSE_SUFFIXES    = ("-as", "-is", "-os", "-us", "-u")
+SYNTACTIC_SUFFIXES = ("-o", "-a", "-e", "-i")
+ALL_SUFFIXES = TENSE_SUFFIXES + SYNTACTIC_SUFFIXES
+
+PREDEFINED_ROOTS = frozenset(
+    {"sci", "emo", "ag", "dir", "soc", "dat", "tem", "lok", "mal", "ne"}
+)
+
+# Reserved tokens (free roots cannot be any of these)
+RESERVED_TOKENS = frozenset({
+    "mal", "ne", "pli", "plej", "duon",
+    "ad", "int", "it", "ist", "ant", "at", "ig",
+    "o", "a", "e", "i", "as", "is", "os", "us", "u"
+})
+
+
+@dataclass
+class ParsedTerm:
+    coefficient: float
+    coefficient_type: str  # "confidence" | "activation"
+    prefixes: list[str] = field(default_factory=list)
+    root: str = ""
+    infixes: list[str] = field(default_factory=list)
+    suffix: str = ""
+    suffix_type: str = ""  # "tense" | "syntactic"
+    raw_word: str = ""
+    parse_error: Optional[str] = None
+
+    @property
+    def is_valid(self) -> bool:
+        return self.parse_error is None and bool(self.root) and bool(self.suffix)
+
+    @property
+    def all_morphemes(self) -> set[str]:
+        m = set(self.prefixes) | {self.root} | set(self.infixes)
+        if self.suffix:
+            m.add(self.suffix)
+        return m
+
+
+@dataclass
+class ParsedExpression:
+    terms: list[ParsedTerm] = field(default_factory=list)
+    raw: str = ""
+    parse_error: Optional[str] = None
+
+    @property
+    def is_valid(self) -> bool:
+        return (self.parse_error is None
+                and bool(self.terms)
+                and all(t.is_valid for t in self.terms))
+
+    @property
+    def roots(self) -> set[str]:
+        return {t.root for t in self.terms if t.root}
+
+    @property
+    def all_morphemes(self) -> set[str]:
+        result = set()
+        for t in self.terms:
+            result |= t.all_morphemes
+        return result
+
+    @property
+    def coefficients(self) -> list[float]:
+        return [t.coefficient for t in self.terms]
+
+
+def parse_word(word: str) -> ParsedTerm:
+    """
+    Parse a single MorphoRepr word deterministically.
+    Does not use global str.replace().
+    """
+    term = ParsedTerm(coefficient=0.0, raw_word=word)
+    remaining = word.strip()
+
+    # Step 2: read prefixes at the beginning (positionally)
+    while True:
+        matched_prefix = None
+        for p in PREFIXES:
+            if remaining.startswith(p):
+                matched_prefix = p
+                break
+        if matched_prefix:
+            # Check that something remains after the prefix
+            after = remaining[len(matched_prefix):]
+            if after:
+                term.prefixes.append(matched_prefix.rstrip("-"))
+                remaining = after
+            else:
+                term.parse_error = f"Terminal prefix without root: {word}"
+                return term
+        else:
+            break
+
+    # Step 3: read suffix at the end
+    matched_suffix = None
+    # Try suffixes from longest to shortest to avoid
+    # confusing "-as" with "-a" + "s"
+    for s in sorted(ALL_SUFFIXES, key=len, reverse=True):
+        if remaining.endswith(s):
+            matched_suffix = s
+            remaining = remaining[:-len(s)]
+            break
+
+    if not matched_suffix:
+        term.parse_error = f"No recognized suffix: {word}"
+        return term
+
+    term.suffix = matched_suffix
+    term.suffix_type = ("tense" if matched_suffix in TENSE_SUFFIXES
+                        else "syntactic")
+
+    # Step 4: detect infixes in the remaining body
+    for ix in INFIXES:
+        if ix in remaining:
+            parts = remaining.split(ix, 1)
+            before_infix = parts[0]
+            after_infix  = parts[1] if len(parts) > 1 else ""
+            if before_infix:
+                term.infixes.append(ix.strip("-"))
+                remaining = before_infix + ("-" + after_infix if after_infix else "")
+
+    # Remove residual hyphens at the edges (artifacts of infix splitting)
+    remaining = remaining.rstrip("-").lstrip("-").strip()
+
+    # Step 5: the root is whatever remains
+    if not remaining:
+        term.parse_error = f"No root extracted: {word}"
+        return term
+
+    term.root = remaining
+    return term
+
+
+def parse_expression(expr: str,
+                     coefficient_type: str = "confidence") -> ParsedExpression:
+    """
+    Parse a complete MorphoRepr expression.
+    Return a ParsedExpression with all parsed terms.
+    """
+    result = ParsedExpression(raw=expr)
+    if not expr or not expr.strip():
+        result.parse_error = "Empty expression"
+        return result
+
+    term_strings = [t.strip() for t in expr.split("+") if t.strip()]
+    if not term_strings:
+        result.parse_error = "No term found"
+        return result
+
+    for ts in term_strings:
+        if "·" not in ts:
+            result.parse_error = f"Term without '·' separator: {ts}"
+            return result
+        coeff_str, word = ts.split("·", 1)
+        try:
+            coeff = float(coeff_str.strip())
+        except ValueError:
+            result.parse_error = f"Invalid coefficient: {coeff_str}"
+            return result
+        if not (0.01 <= coeff <= 1.00):
+            result.parse_error = f"Coefficient outside [0.01,1.00]: {coeff}"
+            return result
+
+        parsed_term = parse_word(word.strip())
+        parsed_term.coefficient = coeff
+        parsed_term.coefficient_type = coefficient_type
+        result.terms.append(parsed_term)
+
+    # Check descending coefficient order
+    coeffs = [t.coefficient for t in result.terms]
+    if coeffs != sorted(coeffs, reverse=True):
+        result.parse_error = "Terms are not ordered by decreasing coefficient"
+        return result
+
+    return result
+
+
+def validate_free_root(root: str) -> Optional[str]:
+    """
+    Check whether a free root is valid.
+    Return None if valid, otherwise an error message.
+    """
+    if root in PREDEFINED_ROOTS:
+        return None  # Predefined root = always valid
+    if root in RESERVED_TOKENS:
+        return f"Root '{root}' is a reserved token"
+    if not re.match(r'^[a-z]{2,5}$', root):
+        return f"Root '{root}' does not match [a-z]{{2,5}}"
+    return None
+```
+
+---
+
+## 5. Corrected Utilities
+
+### 5.1 db_utils.py (named INSERTs, configurable DB_PATH)
 
 ```python
 # utils/db_utils.py
-"""
-Sole access point to features.db.
-Any direct DB operation outside this module is forbidden.
-"""
-import sqlite3
 import json
-from pathlib import Path
+import os
+import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
-DB_PATH = Path("db/features.db")
+# DB_PATH configurable through an environment variable (unit tests)
+DB_PATH = Path(os.environ.get("MORPHOREPR_DB_PATH", "db/features.db"))
+
 
 @contextmanager
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+def get_conn(db_path: Optional[Path] = None):
+    path = db_path or DB_PATH
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     try:
@@ -379,33 +654,60 @@ def get_conn():
     finally:
         conn.close()
 
-def load_features(split: Optional[str] = None,
-                  encoded: bool = False) -> list[dict]:
-    """Load features by split and encoding status."""
+
+def load_features(split: Optional[str] = None) -> list[dict]:
     with get_conn() as conn:
-        query = "SELECT * FROM features WHERE 1=1"
-        params = []
+        q = "SELECT * FROM features WHERE 1=1"
+        p = []
         if split:
-            query += " AND split = ?"
-            params.append(split)
-        # encoded = 0 means not yet processed (DEFAULT 0, not NULL)
-        if not encoded:
-            query += (
-                " AND feature_index NOT IN "
-                "(SELECT DISTINCT feature_index FROM agent_outputs "
-                " WHERE agent_name = 'encoder' AND status = 'ok')"
-            )
-        rows = conn.execute(query, params).fetchall()
+            q += " AND split = ?"
+            p.append(split)
+        rows = conn.execute(q, p).fetchall()
     result = []
     for r in rows:
         d = dict(r)
-        # Deserialize top_examples (stored as JSON string)
         d["top_examples"] = json.loads(d["top_examples"])
         result.append(d)
     return result
 
-def save_agent_output(run_id: str, feature_index: int,
-                      agent_name: str, run_number: int,
+
+def load_features_not_processed(run_id: str,
+                                 agent_name: str,
+                                 run_number: int,
+                                 split: Optional[str] = None) -> list[dict]:
+    """
+    Return features with no output for this agent/run_number.
+    Used for idempotent resume.
+    """
+    with get_conn() as conn:
+        done_q = """
+            SELECT feature_index FROM agent_outputs
+            WHERE run_id = ? AND agent_name = ? AND run_number = ?
+        """
+        done = {
+            r["feature_index"]
+            for r in conn.execute(done_q, (run_id, agent_name, run_number)).fetchall()
+        }
+        q = "SELECT * FROM features WHERE 1=1"
+        p = []
+        if split:
+            q += " AND split = ?"
+            p.append(split)
+        rows = conn.execute(q, p).fetchall()
+
+    result = []
+    for r in rows:
+        if r["feature_index"] not in done:
+            d = dict(r)
+            d["top_examples"] = json.loads(d["top_examples"])
+            result.append(d)
+    return result
+
+
+def save_agent_output(run_id: str,
+                      feature_index: int,
+                      agent_name: str,
+                      run_number: int,
                       output_json: Optional[dict],
                       raw_output: str,
                       status: str,
@@ -415,41 +717,82 @@ def save_agent_output(run_id: str, feature_index: int,
                       batch_id: Optional[str],
                       cost_usd: float,
                       coefficient_type: str = "confidence"):
-    """Insert an agent output — immutable once written."""
-    from uuid import uuid4
-    from datetime import datetime
+    """Named INSERT — resilient to schema evolution."""
     with get_conn() as conn:
         conn.execute("""
-            INSERT INTO agent_outputs VALUES
-            (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO agent_outputs (
+                output_id, run_id, feature_index, agent_name, run_number,
+                output_json, raw_output, status, error_msg,
+                tokens_input, tokens_output, batch_id, cost_usd,
+                coefficient_type, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            str(uuid4()), run_id, feature_index, agent_name,
-            run_number,
+            str(uuid4()), run_id, feature_index, agent_name, run_number,
             json.dumps(output_json) if output_json else None,
             raw_output, status, error_msg,
-            tokens_input, tokens_output, batch_id,
-            cost_usd, coefficient_type,
+            tokens_input, tokens_output, batch_id, cost_usd,
+            coefficient_type,
             datetime.utcnow().isoformat()
         ))
+
+
+def register_batch(batch_id: str, run_id: str, phase: str,
+                   agent_name: str, run_number: int, n_requests: int):
+    """Register a submitted batch before polling it."""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO batches (
+                batch_id, run_id, phase, agent_name, run_number,
+                n_requests, status, submitted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?)
+        """, (batch_id, run_id, phase, agent_name, run_number,
+              n_requests, datetime.utcnow().isoformat()))
+
+
+def mark_batch_consumed(batch_id: str):
+    with get_conn() as conn:
+        conn.execute("""
+            UPDATE batches SET status='consumed', consumed_at=?
+            WHERE batch_id=?
+        """, (datetime.utcnow().isoformat(), batch_id))
+
+
+def get_unconsumed_batch(run_id: str, phase: str,
+                         agent_name: str,
+                         run_number: int) -> Optional[str]:
+    """
+    Return the ID of a submitted but unconsumed batch, if any.
+    Used to resume after a crash between submission and consumption.
+    """
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT batch_id FROM batches
+            WHERE run_id=? AND phase=? AND agent_name=?
+              AND run_number=? AND status='submitted'
+            ORDER BY submitted_at DESC LIMIT 1
+        """, (run_id, phase, agent_name, run_number)).fetchone()
+    return row["batch_id"] if row else None
+
 
 def log_api_cost(run_id: str, phase: str, agent_name: str,
                  model: str, tokens_in: int, tokens_out: int,
                  batch_id: Optional[str], cost: float) -> float:
-    """Log each API call and update the run's cumulative cost."""
-    from uuid import uuid4
-    from datetime import datetime
+    """Log cost and update cumulative total. Return the cumulative total."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT total_cost_usd FROM runs WHERE run_id = ?",
-            (run_id,)
+            "SELECT total_cost_usd FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()
         cumulative = (row["total_cost_usd"] if row else 0.0) + cost
         conn.execute(
-            "UPDATE runs SET total_cost_usd = ? WHERE run_id = ?",
+            "UPDATE runs SET total_cost_usd=? WHERE run_id=?",
             (cumulative, run_id)
         )
         conn.execute("""
-            INSERT INTO api_usage VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO api_usage (
+                call_id, run_id, phase, agent_name, model,
+                tokens_input, tokens_output, batch_id, cost_usd,
+                cumulative_cost, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(uuid4()), run_id, phase, agent_name, model,
             tokens_in, tokens_out, batch_id, cost, cumulative,
@@ -457,83 +800,28 @@ def log_api_cost(run_id: str, phase: str, agent_name: str,
         ))
     return cumulative
 
+
 def check_budget(run_id: str, max_cost: float) -> tuple[float, bool]:
-    """Return (cumulative_cost, over_budget)."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT total_cost_usd FROM runs WHERE run_id = ?", (run_id,)
+            "SELECT total_cost_usd FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()
     cost = row["total_cost_usd"] if row else 0.0
     return cost, cost >= max_cost
 ```
 
-### 4.2 Prompt Management
-
-```python
-# utils/prompt_utils.py
-"""Load, hash, and register versioned prompts."""
-import hashlib
-from pathlib import Path
-from datetime import datetime
-from utils.db_utils import get_conn
-
-def load_prompt(path: str) -> str:
-    """Read a prompt from file. Raises if missing."""
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"Prompt not found: {path}")
-    return p.read_text(encoding="utf-8").strip()
-
-def hash_prompt(content: str) -> str:
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
-
-def register_prompts(prompt_paths: dict) -> dict:
-    """
-    Register all prompts in the DB and return their hashes.
-    prompt_paths: {agent_name: path}
-    """
-    hashes = {}
-    with get_conn() as conn:
-        for agent_name, path in prompt_paths.items():
-            content = load_prompt(path)
-            sha = hash_prompt(content)
-            prompt_id = f"{agent_name}_{sha[:8]}"
-            conn.execute("""
-                INSERT OR IGNORE INTO prompts VALUES (?,?,?,?,?,?)
-            """, (prompt_id, agent_name, "v1", content, sha,
-                  datetime.utcnow().isoformat()))
-            hashes[agent_name] = sha
-    return hashes
-
-def verify_prompts_unchanged(prompt_paths: dict,
-                              registered_hashes: dict) -> None:
-    """Raise an error if any prompt has changed since registration."""
-    for agent_name, path in prompt_paths.items():
-        content = load_prompt(path)
-        current = hash_prompt(content)
-        if current != registered_hashes.get(agent_name):
-            raise RuntimeError(
-                f"Prompt modified during run: {agent_name}\n"
-                f"  expected: {registered_hashes[agent_name]}\n"
-                f"  current:  {current}"
-            )
-```
-
-### 4.3 Robust Batch API Wrapper
+### 5.2 api_utils.py (explicit config, submitted-batch handling)
 
 ```python
 # utils/api_utils.py
-"""
-Robust wrapper around the Anthropic Batch API.
-Handles retry, timeouts, partial errors, budget, JSON parsing.
-"""
 import anthropic
 import json
-import time
 import logging
-from typing import Optional
-from utils.db_utils import log_api_cost, check_budget
-from utils.config_utils import load_config
+import time
+from typing import Optional, Callable
+from utils.db_utils import (register_batch, mark_batch_consumed,
+                             get_unconsumed_batch, log_api_cost,
+                             check_budget)
 
 logger = logging.getLogger(__name__)
 client = anthropic.Anthropic()
@@ -544,58 +832,103 @@ COST_PER_MTK = {
 }
 BATCH_DISCOUNT = 0.50
 
+
 def compute_cost(model: str, tokens_in: int, tokens_out: int,
                  is_batch: bool = True) -> float:
     rates = COST_PER_MTK.get(model, {"input": 3.0, "output": 15.0})
-    cost = (tokens_in  / 1_000_000) * rates["input"] + \
-           (tokens_out / 1_000_000) * rates["output"]
+    cost = ((tokens_in  / 1_000_000) * rates["input"] +
+            (tokens_out / 1_000_000) * rates["output"])
     return cost * (BATCH_DISCOUNT if is_batch else 1.0)
 
-def submit_batch(requests: list[dict]) -> str:
-    """Submit a batch and return its ID."""
-    batch = client.messages.batches.create(requests=requests)
-    logger.info(f"Batch submitted: {batch.id} ({len(requests)} requests)")
-    return batch.id
 
-def poll_batch(batch_id: str,
-               run_id: str,
-               phase: str,
-               agent_name: str,
-               model: str,
-               poll_interval: int = 30,
-               max_wait_seconds: int = 7200) -> list[dict]:
+def build_batch_requests(features: list[dict],
+                         system_prompt: str,
+                         user_prompt_fn: Callable,
+                         model: str,
+                         max_tokens: int,
+                         config: dict) -> list[dict]:
     """
-    Wait for batch completion.
-    Returns a list of results with explicit status.
+    Config is passed explicitly — never call load_config() here.
+    Temperature is added only if use_temperature=True.
     """
+    sampling = config.get("sampling", {})
+    requests = []
+    for f in features:
+        params = {
+            "model":      model,
+            "max_tokens": max_tokens,
+            "system":     system_prompt,
+            "messages":   [{"role": "user",
+                             "content": user_prompt_fn(f)}],
+        }
+        # Conditional temperature — avoids 400 errors on recent models
+        if sampling.get("use_temperature") and sampling.get("temperature") is not None:
+            params["temperature"] = sampling["temperature"]
+
+        requests.append({
+            "custom_id": f"feature_{f['feature_index']}",
+            "params": params
+        })
+    return requests
+
+
+def submit_and_poll_batch(requests: list[dict],
+                          run_id: str,
+                          phase: str,
+                          agent_name: str,
+                          run_number: int,
+                          model: str,
+                          config: dict,
+                          poll_interval: int = 30,
+                          max_wait_seconds: int = 7200) -> list[dict]:
+    """
+    Submit a batch (or recover an already submitted batch) and return results.
+    Handles resume after a crash between submission and consumption.
+    Config is passed explicitly.
+    """
+    # Check if an unconsumed batch already exists for this task
+    existing_batch_id = get_unconsumed_batch(run_id, phase, agent_name, run_number)
+
+    if existing_batch_id:
+        logger.info(
+            f"Resuming existing batch {existing_batch_id} "
+            f"({phase}/{agent_name}/run{run_number})"
+        )
+        batch_id = existing_batch_id
+    else:
+        # Submit a new batch
+        batch = client.messages.batches.create(requests=requests)
+        batch_id = batch.id
+        register_batch(batch_id, run_id, phase, agent_name,
+                       run_number, len(requests))
+        logger.info(f"Batch submitted: {batch_id} ({len(requests)} requests)")
+
+    # Poll until completion
     elapsed = 0
     while elapsed < max_wait_seconds:
-        batch = client.messages.batches.retrieve(batch_id)
-        if batch.processing_status == "ended":
+        batch_status = client.messages.batches.retrieve(batch_id)
+        if batch_status.processing_status == "ended":
             break
-        elif batch.processing_status == "errored":
-            raise RuntimeError(f"Batch {batch_id} server error")
-        counts = batch.request_counts
+        elif batch_status.processing_status == "errored":
+            raise RuntimeError(f"Batch {batch_id} failed on server side")
+        counts = batch_status.request_counts
         logger.info(
             f"Batch {batch_id}: {counts.processing} processing, "
-            f"{counts.succeeded} succeeded, {counts.errored} errors"
+            f"{counts.succeeded} succeeded, {counts.errored} errored"
         )
         time.sleep(poll_interval)
         elapsed += poll_interval
     else:
-        raise TimeoutError(
-            f"Batch {batch_id} timed out after {max_wait_seconds}s"
-        )
+        raise TimeoutError(f"Batch {batch_id} timed out after {max_wait_seconds}s")
 
+    # Retrieve results
     results = []
     total_in, total_out = 0, 0
-
     for result in client.messages.batches.results(batch_id):
         if result.result.type == "succeeded":
-            msg  = result.result.message
-            raw  = msg.content[0].text if msg.content else ""
-            tin  = msg.usage.input_tokens
-            tout = msg.usage.output_tokens
+            msg = result.result.message
+            raw = msg.content[0].text if msg.content else ""
+            tin, tout = msg.usage.input_tokens, msg.usage.output_tokens
             total_in  += tin
             total_out += tout
             parsed, status = _parse_json_output(raw, result.custom_id)
@@ -621,612 +954,316 @@ def poll_batch(batch_id: str,
                 "tokens_output": 0,
             })
 
+    # Log cost and mark batch as consumed
     cost = compute_cost(model, total_in, total_out, is_batch=True)
-    cumulative = log_api_cost(
-        run_id, phase, agent_name, model,
-        total_in, total_out, batch_id, cost
-    )
-    logger.info(
-        f"Batch {batch_id} cost: ${cost:.3f} | Cumulative: ${cumulative:.2f}"
-    )
+    cumulative = log_api_cost(run_id, phase, agent_name, model,
+                              total_in, total_out, batch_id, cost)
+    mark_batch_consumed(batch_id)
+    logger.info(f"Batch {batch_id} consumed — cost: {cost:.3f} $ | "
+                f"Cumulative: {cumulative:.2f} $")
 
-    config = load_config()
-    if config["budget"]["abort_on_exceed"] and \
-       cumulative >= config["budget"]["max_cost_usd"]:
+    # Check budget (config passed explicitly)
+    budget = config.get("budget", {})
+    if budget.get("abort_on_exceed") and \
+       cumulative >= budget.get("max_cost_usd", float("inf")):
         raise RuntimeError(
-            f"Budget exceeded: ${cumulative:.2f} >= "
-            f"${config['budget']['max_cost_usd']}"
+            f"Budget exceeded: {cumulative:.2f} $ >= "
+            f"{budget['max_cost_usd']} $"
         )
 
     return results
 
+
 def _parse_json_output(raw: str,
                        custom_id: str) -> tuple[Optional[dict], str]:
-    """
-    Attempt to parse agent output as structured JSON.
-    Returns (parsed_dict, status).
-    """
+    """Parse the agent JSON output. Return (parsed, status)."""
     if not raw:
         return None, "failed"
     clean = raw.strip()
+    # Remove markdown fences if present
     if clean.startswith("```"):
         lines = clean.split("\n")
-        clean = "\n".join(
-            lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-        )
+        end = -1 if lines[-1].strip() == "```" else len(lines)
+        clean = "\n".join(lines[1:end])
     try:
         parsed = json.loads(clean)
         if "status" not in parsed:
-            logger.warning(f"{custom_id}: JSON missing 'status' field")
+            logger.warning(f"{custom_id}: JSON without 'status' field")
             return parsed, "invalid_json"
         if parsed["status"] == "uncovered":
             return parsed, "uncovered"
         return parsed, "ok"
     except json.JSONDecodeError:
-        logger.warning(f"{custom_id}: non-JSON output: {raw[:100]}")
+        logger.warning(f"{custom_id}: non-JSON output: {raw[:120]}")
         return None, "invalid_json"
-
-def build_batch_requests(features: list[dict],
-                          system_prompt: str,
-                          user_prompt_fn,
-                          model: str,
-                          max_tokens: int) -> list[dict]:
-    """Build the request list for the Batch API."""
-    return [
-        {
-            "custom_id": f"feature_{f['feature_index']}",
-            "params": {
-                "model": model,
-                "max_tokens": max_tokens,
-                "temperature": load_config()["temperature"],
-                "system": system_prompt,
-                "messages": [
-                    {"role": "user",
-                     "content": user_prompt_fn(f)}
-                ]
-            }
-        }
-        for f in features
-    ]
 ```
 
-### 4.4 Statistics and Metrics
+### 5.3 prompt_utils.py (full SHA256)
 
 ```python
-# utils/stats_utils.py
-"""Statistical computations: bootstrap CI95%, morpheme-level metrics."""
-import numpy as np
-from scipy import stats as scipy_stats
-from typing import Optional
-
-def bootstrap_ci(values: list[float],
-                 n_bootstrap: int = 1000,
-                 ci: float = 0.95) -> tuple[float, float, float]:
-    """Return (mean, ci_low, ci_high) via bootstrap."""
-    if not values:
-        return 0.0, 0.0, 0.0
-    arr = np.array(values)
-    means = [
-        np.mean(np.random.choice(arr, len(arr), replace=True))
-        for _ in range(n_bootstrap)
-    ]
-    alpha = (1 - ci) / 2
-    return (
-        float(np.mean(arr)),
-        float(np.percentile(means, alpha * 100)),
-        float(np.percentile(means, (1 - alpha) * 100))
-    )
-
-def morpheme_jaccard(expr1: Optional[str],
-                     expr2: Optional[str]) -> float:
-    """Jaccard similarity over morpheme sets."""
-    if not expr1 or not expr2:
-        return 0.0
-    def extract(expr: str) -> set:
-        morphemes = set()
-        for term in expr.split("+"):
-            if "·" in term:
-                _, word = term.strip().split("·", 1)
-                morphemes.update(word.replace("-", " ").split())
-        return morphemes
-    s1, s2 = extract(expr1), extract(expr2)
-    if not s1 and not s2:
-        return 1.0
-    return len(s1 & s2) / len(s1 | s2)
-
-def root_jaccard(expr1: Optional[str],
-                 expr2: Optional[str]) -> float:
-    """Jaccard similarity over root morphemes only."""
-    SUFFIXES = {"-o","-a","-e","-i","-as","-is","-os","-us","-u"}
-    INFIXES  = {"-ad-","-int-","-it-","-ist-","-ant-","-at-","-ig-","-iĝ-"}
-    PREFIXES = {"mal-","ne-","pli-","plej-","duon-"}
-    if not expr1 or not expr2:
-        return 0.0
-    def extract_roots(expr: str) -> set:
-        roots = set()
-        for term in expr.split("+"):
-            if "·" not in term:
-                continue
-            _, word = term.strip().split("·", 1)
-            w = word
-            for p in PREFIXES:
-                w = w.replace(p, "")
-            for ix in INFIXES:
-                w = w.replace(ix, "-")
-            for s in SUFFIXES:
-                if w.endswith(s):
-                    w = w[:-len(s)]
-                    break
-            root = w.replace("-", "").strip()
-            if root:
-                roots.add(root)
-        return roots
-    s1, s2 = extract_roots(expr1), extract_roots(expr2)
-    if not s1 and not s2:
-        return 1.0
-    return len(s1 & s2) / len(s1 | s2)
-
-def coefficient_correlation(expr1: Optional[str],
-                             expr2: Optional[str]) -> float:
-    """Pearson correlation between corresponding term coefficients."""
-    if not expr1 or not expr2:
-        return 0.0
-    def extract_coeffs(expr: str) -> list[float]:
-        coeffs = []
-        for term in expr.split("+"):
-            if "·" in term:
-                coeff_str, _ = term.strip().split("·", 1)
-                try:
-                    coeffs.append(float(coeff_str.strip()))
-                except ValueError:
-                    pass
-        return coeffs
-    c1, c2 = extract_coeffs(expr1), extract_coeffs(expr2)
-    n = min(len(c1), len(c2))
-    if n < 2:
-        return 0.0
-    r, _ = scipy_stats.pearsonr(c1[:n], c2[:n])
-    return float(r)
-
-def morpheme_edit_distance(expr1: Optional[str],
-                           expr2: Optional[str]) -> float:
-    """Edit distance (substitutions) between morpheme chains."""
-    if not expr1 or not expr2:
-        return float("inf")
-    def to_list(expr: str) -> list[str]:
-        morphemes = []
-        for term in expr.split("+"):
-            if "·" in term:
-                _, word = term.strip().split("·", 1)
-                morphemes.extend(word.split("-"))
-        return [m for m in morphemes if m]
-    m1, m2 = to_list(expr1), to_list(expr2)
-    if not m1 or not m2:
-        return float(max(len(m1), len(m2)))
-    dp = [[0] * (len(m2)+1) for _ in range(len(m1)+1)]
-    for i in range(len(m1)+1):
-        dp[i][0] = i
-    for j in range(len(m2)+1):
-        dp[0][j] = j
-    for i in range(1, len(m1)+1):
-        for j in range(1, len(m2)+1):
-            cost = 0 if m1[i-1] == m2[j-1] else 1
-            dp[i][j] = min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+cost)
-    return float(dp[len(m1)][len(m2)])
-```
-
----
-
-## 5. Output Property Classifiers (Phase 4)
-
-### 5.1 Negation (robust)
-
-```python
-# classifiers/negation.py
-"""
-Negation classifier — robust property.
-Combines syntactic dependencies, lexical negation, and morphology.
-"""
-import spacy
-
-nlp = spacy.load("en_core_web_sm")
-
-NEG_LEXICON = {
-    "no","not","never","neither","nor","nobody","nothing",
-    "nowhere","none","without","lack","lacking","absent",
-    "fail","fails","failed","failure","missing","unable",
-    "impossible","prevent","prevents","prevented","deny",
-    "denies","denied","refuse","refuses","refused"
-}
-NEG_PREFIXES = ("un","im","in","dis","non","ir","il","a")
-
-def count_negation_signals(text: str) -> float:
-    """Return a negation score normalized by token count.
-    Weights: dep_neg = 1.0, lexicon = 0.7, morphological = 0.3
-    """
-    doc = nlp(text)
-    tokens = [t for t in doc if not t.is_space]
-    if not tokens:
-        return 0.0
-    score = 0.0
-    for t in tokens:
-        if t.dep_ == "neg":
-            score += 1.0
-        elif t.lower_ in NEG_LEXICON:
-            score += 0.7
-        elif (any(t.lower_.startswith(p) for p in NEG_PREFIXES)
-              and len(t.text) > 4):
-            score += 0.3
-    return score / len(tokens)
-
-def measure(texts_before: list[str],
-            texts_after: list[str]) -> dict:
-    before = (sum(count_negation_signals(t) for t in texts_before)
-              / len(texts_before))
-    after  = (sum(count_negation_signals(t) for t in texts_after)
-              / len(texts_after))
-    delta  = after - before
-    THRESHOLD = 0.02
-    return {
-        "property":  "negation_presence",
-        "tier":      "robust",
-        "before":    round(before, 4),
-        "after":     round(after, 4),
-        "delta":     round(delta, 4),
-        "direction": ("INCREASE"  if delta >  THRESHOLD else
-                      "DECREASE"  if delta < -THRESHOLD else
-                      "NO_CHANGE")
-    }
-```
-
-### 5.2 Emotional Valence (semi-robust)
-
-```python
-# classifiers/valence.py
-"""
-Emotional valence classifier — semi-robust property.
-Uses a general-domain model rather than SST-2 (movie reviews only).
-"""
-from transformers import pipeline as hf_pipeline
-
-_pipe = None
-
-def get_pipe():
-    global _pipe
-    if _pipe is None:
-        _pipe = hf_pipeline(
-            "sentiment-analysis",
-            model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-            truncation=True, max_length=512
-        )
-    return _pipe
-
-def _neg_score(text: str) -> float:
-    result = get_pipe()(text)[0]
-    if result["label"].lower() in ("negative", "neg", "label_0"):
-        return result["score"]
-    return 1.0 - result["score"]
-
-def measure(texts_before: list[str],
-            texts_after: list[str]) -> dict:
-    before = sum(_neg_score(t) for t in texts_before) / len(texts_before)
-    after  = sum(_neg_score(t) for t in texts_after)  / len(texts_after)
-    delta  = after - before
-    THRESHOLD = 0.05
-    return {
-        "property":  "negative_valence",
-        "tier":      "semi-robust",
-        "before":    round(before, 4),
-        "after":     round(after, 4),
-        "delta":     round(delta, 4),
-        "direction": ("INCREASE"  if delta >  THRESHOLD else
-                      "DECREASE"  if delta < -THRESHOLD else
-                      "NO_CHANGE"),
-        "reliability_note":
-            "Semi-robust: interpret with caution on technical or ironic text."
-    }
-```
-
-### 5.3 Classifier Calibration
-
-```python
-# classifiers/calibration/run_calibration.py
-"""
-Validate classifiers on manually annotated examples.
-Must pass before the pilot run.
-"""
-import json
-from classifiers import negation, valence
-
-def calibrate(classifier_module, test_file: str,
-              property_name: str, min_accuracy: float = 0.85) -> bool:
-    data = json.loads(open(test_file).read())
-    correct = 0
-    for example in data:
-        result = classifier_module.measure(
-            [example["text_before"]],
-            [example["text_after"]]
-        )
-        if result["direction"] == example["expected_direction"]:
-            correct += 1
-    accuracy = correct / len(data)
-    status = "PASS" if accuracy >= min_accuracy else "FAIL"
-    print(f"[{status}] {property_name}: {accuracy:.1%} "
-          f"({correct}/{len(data)}) — threshold: {min_accuracy:.0%}")
-    return accuracy >= min_accuracy
-
-if __name__ == "__main__":
-    results = [
-        calibrate(negation, "calibration/negation_test.json",
-                  "negation_presence", min_accuracy=0.85),
-        calibrate(valence,  "calibration/valence_test.json",
-                  "negative_valence",  min_accuracy=0.80),
-    ]
-    if not all(results):
-        raise SystemExit(
-            "Calibration failed — fix classifiers before launching pilot run"
-        )
-    print("\nCalibration passed — pipeline ready for pilot run")
-```
-
----
-
-## 6. Main Agents
-
-### 6.1 Encoder Agent (Phase 3)
-
-```python
-# agents/encoder.py
-"""
-Phase 3 — MorphoRepr encoding.
-Two independent runs. Structured JSON output mandatory.
-"""
-import json
-import logging
+# utils/prompt_utils.py
+import hashlib
 from pathlib import Path
-from utils.db_utils import save_agent_output, get_conn
-from utils.api_utils import submit_batch, poll_batch, build_batch_requests
-from utils.prompt_utils import load_prompt
-from utils.config_utils import load_config
-
-logger = logging.getLogger(__name__)
-
-# Expected output schema (documented in prompt)
-OUTPUT_SCHEMA = {
-    "status": "encoded | uncovered",
-    "expression": "0.86·mal-emo-a + 0.42·ne-soc-a",
-    "coefficient_type": "confidence",
-    "terms": [
-        {
-            "coefficient": 0.86,
-            "morpheme_chain": "mal-emo-a",
-            "root": "emo",
-            "prefixes": ["mal"],
-            "infix": None,
-            "suffix": "-a",
-            "confidence": 0.86,
-            "rationale": "negative affective context",
-            "not_covered": "cultural connotation, specific named entities"
-        }
-    ],
-    "uncovered_reason": None
-}
-
-def build_user_prompt(feature: dict, lexicon: dict) -> str:
-    top10 = feature["top_examples"][:10]
-    return (
-        f"Feature index: {feature['feature_index']}\n"
-        f"Natural language description: {feature['nl_description']}\n\n"
-        f"Top-10 activating examples:\n"
-        f"{json.dumps(top10, ensure_ascii=False, indent=2)}\n\n"
-        f"Available lexicon:\n"
-        f"{json.dumps(lexicon['morphemes'], ensure_ascii=False, indent=2)}\n\n"
-        f"Respond ONLY with a valid JSON object matching this schema:\n"
-        f"{json.dumps(OUTPUT_SCHEMA, ensure_ascii=False, indent=2)}\n"
-        f"No text outside the JSON object."
-    )
-
-def load_features_not_encoded(run_id: str,
-                               run_number: int) -> list[dict]:
-    """Load features without an encoding output for this run_number."""
-    with get_conn() as conn:
-        done = {
-            row["feature_index"]
-            for row in conn.execute("""
-                SELECT feature_index FROM agent_outputs
-                WHERE run_id = ? AND agent_name = 'encoder'
-                AND run_number = ?
-            """, (run_id, run_number)).fetchall()
-        }
-        all_features = conn.execute("SELECT * FROM features").fetchall()
-    result = []
-    for f in all_features:
-        if f["feature_index"] not in done:
-            d = dict(f)
-            d["top_examples"] = json.loads(d["top_examples"])
-            result.append(d)
-    return result
-
-def run(run_id: str):
-    config  = load_config()
-    system  = load_prompt(config["prompts"]["encoder"])
-    lexicon = json.loads(Path("db/lexicon.json").read_text())
-    model   = config["models"]["semantic_judgment"]
-
-    for run_number in [1, 2]:
-        logger.info(f"Encoding run {run_number}/2")
-        features = load_features_not_encoded(run_id, run_number)
-
-        if not features:
-            logger.info(f"Run {run_number}: all features already encoded")
-            continue
-
-        logger.info(f"  {len(features)} features to encode (run {run_number})")
-
-        requests = build_batch_requests(
-            features, system,
-            lambda f: build_user_prompt(f, lexicon),
-            model=model,
-            max_tokens=config["models"]["max_tokens_judgment"]
-        )
-
-        batch_id = submit_batch(requests)
-        Path(f"checkpoints/batch_encoder_run{run_number}.txt").write_text(
-            batch_id
-        )
-        results = poll_batch(
-            batch_id, run_id, "phase3", "encoder", model
-        )
-
-        for r in results:
-            feature_index = int(r["custom_id"].replace("feature_", ""))
-            save_agent_output(
-                run_id=run_id,
-                feature_index=feature_index,
-                agent_name="encoder",
-                run_number=run_number,
-                output_json=r["output_json"],
-                raw_output=r["raw_output"] or "",
-                status=r["status"],
-                error_msg=r["error_msg"],
-                tokens_input=r["tokens_input"],
-                tokens_output=r["tokens_output"],
-                batch_id=batch_id,
-                cost_usd=0.0,
-                coefficient_type="confidence"
-            )
-
-        n_ok   = sum(1 for r in results if r["status"] == "ok")
-        n_unc  = sum(1 for r in results if r["status"] == "uncovered")
-        n_fail = sum(1 for r in results if r["status"] == "failed")
-        logger.info(
-            f"  Run {run_number} done: "
-            f"{n_ok} ok, {n_unc} uncovered, {n_fail} failed"
-        )
-```
-
-### 6.2 Causal Prediction Agent (Phase 4)
-
-```python
-# agents/predictor.py
-"""
-Phase 4 — Causal prediction.
-Agent receives ONLY the MorphoRepr expression, not the NL description.
-Anti-circularity safeguard.
-"""
-import json
-import logging
-from utils.db_utils import get_conn, save_agent_output
-from utils.api_utils import submit_batch, poll_batch, build_batch_requests
-from utils.prompt_utils import load_prompt
-from utils.config_utils import load_config
-
-logger = logging.getLogger(__name__)
-
-def build_user_prompt(feature_index: int,
-                      morphorepr_expression: str) -> str:
-    """
-    CRITICAL: the judge does NOT receive the NL description.
-    Anti-circularity safeguard.
-    """
-    return (
-        f"Feature index: {feature_index}\n"
-        f"MorphoRepr expression: {morphorepr_expression}\n\n"
-        f"Predict which output properties will change when this feature "
-        f"is amplified by +5 activation units.\n"
-        f"Respond ONLY with a valid JSON object as specified "
-        f"in your system prompt."
-    )
-
-def load_encoded_features(run_id: str) -> list[dict]:
-    """Load features with encoded expressions (run 1, not yet predicted)."""
-    with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT ao.feature_index,
-                   json_extract(ao.output_json, '$.expression') as expression
-            FROM agent_outputs ao
-            WHERE ao.run_id = ?
-              AND ao.agent_name = 'encoder'
-              AND ao.run_number = 1
-              AND ao.status = 'ok'
-              AND ao.feature_index NOT IN (
-                  SELECT feature_index FROM agent_outputs
-                  WHERE run_id = ? AND agent_name = 'predictor'
-              )
-        """, (run_id, run_id)).fetchall()
-    return [dict(r) for r in rows if r["expression"]]
-
-def run(run_id: str):
-    config   = load_config()
-    system   = load_prompt(config["prompts"]["predictor"])
-    model    = config["models"]["semantic_judgment"]
-    features = load_encoded_features(run_id)
-
-    if not features:
-        logger.info("Phase 4: all features already predicted")
-        return
-
-    logger.info(f"Phase 4: {len(features)} features to predict")
-
-    requests = build_batch_requests(
-        features, system,
-        lambda f: build_user_prompt(f["feature_index"], f["expression"]),
-        model=model,
-        max_tokens=config["models"]["max_tokens_judgment"]
-    )
-
-    batch_id = submit_batch(requests)
-    results  = poll_batch(batch_id, run_id, "phase4", "predictor", model)
-
-    for r in results:
-        feature_index = int(r["custom_id"].replace("feature_", ""))
-        save_agent_output(
-            run_id=run_id,
-            feature_index=feature_index,
-            agent_name="predictor",
-            run_number=1,
-            output_json=r["output_json"],
-            raw_output=r["raw_output"] or "",
-            status=r["status"],
-            error_msg=r["error_msg"],
-            tokens_input=r["tokens_input"],
-            tokens_output=r["tokens_output"],
-            batch_id=batch_id,
-            cost_usd=0.0
-        )
-
-    logger.info("Phase 4 prediction complete")
-```
-
----
-
-## 7. Shuffled MorphoRepr Control
-
-```python
-# baselines/shuffled.py
-"""
-Shuffled MorphoRepr baseline.
-- Within-split shuffling only (never cross-split)
-- Length-matched ±1 term
-- 10 shuffles per feature
-- Coefficients preserved (only morphemes are shuffled)
-"""
-import random
-import logging
-from uuid import uuid4
 from datetime import datetime
 from utils.db_utils import get_conn
-from utils.config_utils import load_config
+
+
+def load_prompt(path: str) -> str:
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Prompt not found: {path}")
+    return p.read_text(encoding="utf-8").strip()
+
+
+def hash_prompt(content: str) -> str:
+    """Full SHA256 (64 hex characters) — no truncation."""
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+def hash_file(path: str) -> str:
+    """SHA256 of a binary or text file."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def hash_lexicon_canonical(lexicon_path: str) -> str:
+    """
+    Canonical lexicon hash: sort keys so that the hash is independent
+    of JSON serialization order.
+    """
+    import json
+    data = json.loads(Path(lexicon_path).read_text())
+    canonical = json.dumps(data, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def hash_corpus_canonical(db_path: str) -> str:
+    """
+    Canonical corpus hash: sorted CSV export of features,
+    independent of SQLite's binary format.
+    """
+    import csv
+    import io
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT * FROM features ORDER BY feature_index"
+    ).fetchall()
+    conn.close()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for row in rows:
+        writer.writerow(row)
+    return hashlib.sha256(buf.getvalue().encode()).hexdigest()
+
+
+def register_prompts(prompt_paths: dict) -> dict:
+    """Register all prompts in DB. Return {agent: full_sha256}."""
+    hashes = {}
+    with get_conn() as conn:
+        for agent_name, path in prompt_paths.items():
+            content = load_prompt(path)
+            sha = hash_prompt(content)
+            prompt_id = f"{agent_name}_{sha[:12]}"
+            conn.execute("""
+                INSERT OR IGNORE INTO prompts (
+                    prompt_id, agent_name, version,
+                    content, sha256, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (prompt_id, agent_name, "v1", content, sha,
+                  datetime.utcnow().isoformat()))
+            hashes[agent_name] = sha
+    return hashes
+
+
+def verify_prompts_unchanged(prompt_paths: dict,
+                              registered_hashes: dict) -> None:
+    """Raise an error if a prompt changed since registration."""
+    for agent_name, path in prompt_paths.items():
+        current = hash_prompt(load_prompt(path))
+        expected = registered_hashes.get(agent_name, "")
+        if current != expected:
+            raise RuntimeError(
+                f"Prompt modified: {agent_name}\n"
+                f"  expected: {expected[:16]}...\n"
+                f"  current : {current[:16]}..."
+            )
+```
+
+---
+
+## 6. Steering Agent — Complete Specification
+
+```python
+# agents/steerer.py
+"""
+Phase 4 — SAE steering.
+
+Intervention specification:
+  - Space: residual stream after SAE reconstruction
+  - Layer: configured in run_v1.yaml (steering.target_layer)
+  - Token position: all tokens (or configurable)
+  - Magnitude: normalized by the feature's maximum activation on the corpus
+  - +0 control: always run to measure baseline
+  - Dose-response curve: [0, 2, 5, 10] units, +5 = primary magnitude
+  - Subsample: magnitudes 2 and 10 on 50 random-split features
+  - Out-of-distribution detection (OOD): if activation after intervention
+    exceeds p99 * ood_threshold, the result is marked ood_flag=1
+
+Required architecture:
+  TransformerLens or nnsight to access Claude 3 Sonnet activations
+  through open-source weights (if available) or a proxy model.
+  If activation access is not available through the API,
+  this phase requires a local model or special access.
+
+Note: this phase is the most infrastructure-dependent one.
+  Validate activation access in the dev run before the pilot run.
+"""
+import json
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
-def _count_terms(expression: str) -> int:
-    return len([t for t in expression.split("+") if "·" in t])
 
-def generate_shuffles(run_id: str, n_repeats: int = 10):
-    config   = load_config()
-    max_diff = config["shuffle_control"]["max_term_diff"]
+def _get_sae_model(config: dict):
+    """
+    Load the SAE for the target model and layer.
+    Uses sae_lens to access public Claude 3 Sonnet SAEs.
+    """
+    from sae_lens import SAE
+    layer = config["steering"]["target_layer"]
+    # SAE identifier to be specified after pilot-run validation
+    sae, _, _ = SAE.from_pretrained(
+        release="claude-3-sonnet-res-jb",
+        sae_id=f"blocks.{layer}.hook_resid_post",
+    )
+    return sae
 
+
+def _get_model(config: dict):
+    """
+    Load the language model for steering.
+    Uses TransformerLens or nnsight.
+    """
+    # To be specified according to available access:
+    # - TransformerLens for a GPT-style proxy model
+    # - nnsight for Claude if access is available
+    # - Local model if open-source weights are available
+    raise NotImplementedError(
+        "Specify model loading according to available access.\n"
+        "Validate in a dev run with a proxy model before the pilot run."
+    )
+
+
+def load_probe_sentences(n: int = 20) -> list[str]:
+    """
+    Load neutral probe sentences.
+    Sentences must be:
+    - short (10-30 tokens)
+    - without strong emotional or technical content
+    - in English
+    - without named entities
+    """
+    path = Path("data/probe_sentences.txt")
+    if not path.exists():
+        raise FileNotFoundError(
+            "data/probe_sentences.txt missing. "
+            "Create this file with 20 neutral sentences before the dev run."
+        )
+    sentences = [l.strip() for l in path.read_text().splitlines()
+                 if l.strip()][:n]
+    if len(sentences) < n:
+        raise ValueError(
+            f"Only {len(sentences)} probe sentences available, "
+            f"{n} required."
+        )
+    return sentences
+
+
+def steer_feature(model, sae, feature_index: int,
+                  magnitude: float,
+                  probe_sentences: list[str],
+                  config: dict) -> list[dict]:
+    """
+    Apply steering to an SAE feature and return before/after pairs.
+
+    Implementation:
+    1. For each probe sentence, encode into tokens
+    2. Run a forward pass and retrieve feature activation at target layer
+    3. Modify the residual by adding magnitude * SAE_decoder_direction
+       on all tokens (or token_position according to config)
+    4. Run the forward pass again with the modified residual
+    5. Decode the before and after outputs
+    6. Measure the actual resulting activation (for OOD checking)
+    """
+    token_pos   = config["steering"]["token_position"]
+    ood_thresh  = config["steering"]["ood_threshold"]
+    results = []
+
+    for probe_id, sentence in enumerate(probe_sentences, 1):
+        try:
+            # SAE intervention in the residual stream
+            # (implementation depends on model access)
+            text_before = sentence
+            text_after  = sentence  # Placeholder — to be implemented
+            activation_before = 0.0
+            activation_after  = magnitude  # Placeholder
+
+            # OOD detection
+            p99 = sae.W_dec[feature_index].norm().item()
+            ood = int(abs(activation_after) > p99 * ood_thresh)
+
+            results.append({
+                "probe_id":         probe_id,
+                "text_before":      text_before,
+                "text_after":       text_after,
+                "activation_before": activation_before,
+                "activation_after":  activation_after,
+                "ood_flag":         ood
+            })
+        except Exception as e:
+            logger.warning(
+                f"Steering error for feature {feature_index} "
+                f"probe {probe_id} magnitude {magnitude}: {e}"
+            )
+            results.append({
+                "probe_id":   probe_id,
+                "text_before": sentence,
+                "text_after":  None,
+                "activation_before": None,
+                "activation_after":  None,
+                "ood_flag":   0,
+                "error":      str(e)
+            })
+    return results
+
+
+def run(run_id: str, config: dict):
+    """
+    Phase 4 — Steering.
+    Run the dose-response curve on the subsample and the primary
+    magnitude on all encoded features.
+    """
+    from utils.db_utils import get_conn
+
+    logger.info("Phase 4: SAE steering")
+
+    try:
+        model = _get_model(config)
+        sae   = _get_sae_model(config)
+    except NotImplementedError as e:
+        logger.error(str(e))
+        raise
+
+    probe_sentences = load_probe_sentences(config["steering"]["n_probe_sentences"])
+    primary_mag     = config["steering"]["primary_magnitude"]
+    all_magnitudes  = config["steering"]["magnitudes"]
+    n_subsample     = config["steering"]["n_subsample_for_curve"]
+
+    # Retrieve encoded features
     with get_conn() as conn:
         rows = conn.execute("""
             SELECT ao.feature_index,
@@ -1234,312 +1271,371 @@ def generate_shuffles(run_id: str, n_repeats: int = 10):
                    json_extract(ao.output_json, '$.expression') as expression
             FROM agent_outputs ao
             JOIN features f ON f.feature_index = ao.feature_index
-            WHERE ao.run_id = ?
-              AND ao.agent_name = 'encoder'
-              AND ao.run_number = 1
-              AND ao.status = 'ok'
+            WHERE ao.run_id = ? AND ao.agent_name = 'encoder'
+              AND ao.run_number = 1 AND ao.status = 'ok'
         """, (run_id,)).fetchall()
 
-    by_split: dict[str, list[dict]] = {}
-    for r in rows:
-        if r["expression"]:
-            by_split.setdefault(r["split"], []).append({
-                "feature_index": r["feature_index"],
-                "expression":    r["expression"],
-                "n_terms":       _count_terms(r["expression"])
-            })
+    random_features = [r for r in rows if r["split"] == "random"]
+    subsample = random_features[:n_subsample]
 
-    to_insert = []
-    for split, features in by_split.items():
-        for feat in features:
-            candidates = [
-                f for f in features
-                if f["feature_index"] != feat["feature_index"]
-                and abs(f["n_terms"] - feat["n_terms"]) <= max_diff
-            ]
-            if len(candidates) < 3:
-                logger.warning(
-                    f"Feature {feat['feature_index']}: "
-                    f"only {len(candidates)} candidates for shuffle"
-                )
-                continue
-            for shuffle_num in range(1, n_repeats + 1):
-                source = random.choice(candidates)
-                to_insert.append({
-                    "feature_index": feat["feature_index"],
-                    "shuffle_number": shuffle_num,
-                    "source_feature": source["feature_index"],
-                    "annotation":    source["expression"]
-                })
-
-    with get_conn() as conn:
-        for s in to_insert:
-            conn.execute("""
-                INSERT OR IGNORE INTO shuffle_controls
-                VALUES (?,?,?,?,?,?,NULL,NULL,?)
-            """, (
-                str(uuid4()), run_id,
-                s["feature_index"], s["shuffle_number"],
-                s["source_feature"], s["annotation"],
-                datetime.utcnow().isoformat()
-            ))
-
-    logger.info(
-        f"Shuffles generated: {len(to_insert)} "
-        f"({n_repeats} per feature)"
+    # Subsample: full dose-response curve
+    _run_steering_batch(
+        run_id, model, sae, subsample,
+        all_magnitudes, probe_sentences, config
     )
+
+    # All features: primary magnitude only
+    remaining = [r for r in rows
+                 if r["feature_index"] not in
+                 {s["feature_index"] for s in subsample}]
+    _run_steering_batch(
+        run_id, model, sae, remaining,
+        [0, primary_mag], probe_sentences, config
+    )
+
+    logger.info("Phase 4 steering completed")
+
+
+def _run_steering_batch(run_id: str, model, sae,
+                        features: list,
+                        magnitudes: list[float],
+                        probe_sentences: list[str],
+                        config: dict):
+    from utils.db_utils import get_conn
+    with get_conn() as conn:
+        for feat in features:
+            for mag in magnitudes:
+                results = steer_feature(
+                    model, sae,
+                    feat["feature_index"], mag,
+                    probe_sentences, config
+                )
+                for r in results:
+                    conn.execute("""
+                        INSERT INTO steering_results (
+                            result_id, run_id, feature_index, magnitude,
+                            probe_id, text_before, text_after,
+                            layer, token_position,
+                            activation_before, activation_after,
+                            ood_flag, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        str(uuid4()), run_id, feat["feature_index"],
+                        mag, r["probe_id"],
+                        r["text_before"], r.get("text_after"),
+                        config["steering"].get("target_layer"),
+                        config["steering"].get("token_position"),
+                        r.get("activation_before"),
+                        r.get("activation_after"),
+                        r.get("ood_flag", 0),
+                        datetime.utcnow().isoformat()
+                    ))
 ```
 
 ---
 
-## 8. Unit Tests
+## 7. Corrected Unit Tests
 
 ```python
-# tests/test_parse.py
-"""Unit tests for MorphoRepr parsing utilities."""
-import pytest
-from utils.stats_utils import (morpheme_jaccard, root_jaccard,
-                                coefficient_correlation,
-                                morpheme_edit_distance)
-
-class TestMorphemeJaccard:
-    def test_identical(self):
-        expr = "0.86·mal-emo-a + 0.42·ne-soc-a"
-        assert morpheme_jaccard(expr, expr) == 1.0
-
-    def test_completely_different(self):
-        assert morpheme_jaccard("0.90·ag-is", "0.80·sci-o") < 0.5
-
-    def test_partial_overlap(self):
-        e1 = "0.86·mal-emo-a + 0.42·ne-soc-a"
-        e2 = "0.86·mal-emo-a + 0.30·ag-is"
-        j = morpheme_jaccard(e1, e2)
-        assert 0.0 < j < 1.0
-
-    def test_none_inputs(self):
-        assert morpheme_jaccard(None, "0.8·ag-is") == 0.0
-
-class TestCoefficientCorrelation:
-    def test_perfect(self):
-        expr = "0.90·ag-is + 0.50·sci-o"
-        assert coefficient_correlation(expr, expr) == pytest.approx(1.0)
-
-    def test_single_term(self):
-        assert coefficient_correlation("0.90·ag-is", "0.80·sci-o") == 0.0
-
-class TestMorphemeEditDistance:
-    def test_identical(self):
-        assert morpheme_edit_distance("0.9·ag-is", "0.9·ag-is") == 0.0
-
-    def test_one_substitution(self):
-        dist = morpheme_edit_distance("0.9·ag-is", "0.9·ag-os")
-        assert dist <= 2.0
-
-
-# tests/test_schema.py
-"""Tests for agent JSON output schema validation."""
-import pytest
-import json
-from utils.api_utils import _parse_json_output
-
-class TestJsonOutputSchema:
-    def test_valid_encoded(self):
-        raw = json.dumps({
-            "status": "encoded",
-            "expression": "0.86·mal-emo-a + 0.42·ne-soc-a",
-            "coefficient_type": "confidence",
-            "terms": [
-                {"coefficient": 0.86, "morpheme_chain": "mal-emo-a",
-                 "root": "emo", "prefixes": ["mal"], "infix": None,
-                 "suffix": "-a", "confidence": 0.86,
-                 "rationale": "negative affect",
-                 "not_covered": "pragmatic connotation"}
-            ],
-            "uncovered_reason": None
-        })
-        parsed, status = _parse_json_output(raw, "feature_7823")
-        assert status == "ok"
-        assert "expression" in parsed
-
-    def test_uncovered(self):
-        raw = json.dumps({
-            "status": "uncovered",
-            "expression": None,
-            "coefficient_type": "confidence",
-            "terms": [],
-            "uncovered_reason": "No morpheme covers named entity specificity"
-        })
-        _, status = _parse_json_output(raw, "feature_999")
-        assert status == "uncovered"
-
-    def test_invalid_json(self):
-        _, status = _parse_json_output("Not JSON.", "feature_001")
-        assert status == "invalid_json"
-
-    def test_markdown_fences_stripped(self):
-        raw = ('```json\n{"status":"encoded","expression":"0.9·ag-is",'
-               '"coefficient_type":"confidence","terms":[],'
-               '"uncovered_reason":null}\n```')
-        parsed, _ = _parse_json_output(raw, "feature_002")
-        assert parsed is not None
-
-
-# tests/test_db.py
-"""Tests for DB operations and crash recovery."""
-import pytest
+# tests/conftest.py
+"""Shared fixtures: temporary DB injected through env var."""
+import os
 import sqlite3
+import pytest
 from pathlib import Path
 
-def make_test_db(tmp_path) -> Path:
+
+@pytest.fixture
+def test_db(tmp_path, monkeypatch):
+    """Create a temporary DB and expose it through an env var."""
     db_path = tmp_path / "test.db"
+    monkeypatch.setenv("MORPHOREPR_DB_PATH", str(db_path))
+    schema = Path("db/schema.sql").read_text()
     conn = sqlite3.connect(db_path)
-    conn.executescript(Path("db/schema.sql").read_text())
+    conn.executescript(schema)
     conn.commit()
     conn.close()
     return db_path
 
-def test_feature_not_encoded_by_default(tmp_path):
-    db = make_test_db(tmp_path)
-    conn = sqlite3.connect(db)
+
+# tests/test_parser.py
+"""Tests for the single MorphoRepr parser."""
+import pytest
+from utils.morphorepr_parser import (
+    parse_expression, parse_word, validate_free_root,
+    ParsedExpression
+)
+
+
+class TestParseWord:
+    def test_simple_verbal(self):
+        t = parse_word("ag-is")
+        assert t.root == "ag"
+        assert t.suffix == "-is"
+        assert t.suffix_type == "tense"
+        assert t.is_valid
+
+    def test_prefix_root_suffix(self):
+        t = parse_word("mal-emo-a")
+        assert "mal" in t.prefixes
+        assert t.root == "emo"
+        assert t.suffix == "-a"
+        assert t.suffix_type == "syntactic"
+        assert t.is_valid
+
+    def test_root_infix_suffix(self):
+        t = parse_word("soc-ant-o")
+        assert t.root == "soc"
+        assert "ant" in t.infixes
+        assert t.suffix == "-o"
+        assert t.is_valid
+
+    def test_invalid_no_suffix(self):
+        t = parse_word("ag")
+        assert not t.is_valid
+        assert t.parse_error is not None
+
+    def test_free_root(self):
+        t = parse_word("pens-is")
+        assert t.root == "pens"
+        assert t.suffix == "-is"
+        assert t.is_valid
+
+
+class TestParseExpression:
+    def test_valid_two_terms(self):
+        e = parse_expression("0.86·mal-emo-a + 0.42·ne-soc-a")
+        assert e.is_valid
+        assert len(e.terms) == 2
+        assert e.terms[0].coefficient == pytest.approx(0.86)
+        assert e.roots == {"emo", "soc"}
+
+    def test_descending_order_enforced(self):
+        # Terms in the wrong order → error
+        e = parse_expression("0.40·ag-is + 0.90·sci-o")
+        assert not e.is_valid
+        assert "ordered" in e.parse_error or "ordonnés" in e.parse_error
+
+    def test_coefficient_out_of_range(self):
+        e = parse_expression("9.99·ag-is")
+        assert not e.is_valid
+
+    def test_missing_separator(self):
+        e = parse_expression("0.86 mal-emo-a")
+        assert not e.is_valid
+
+    def test_empty_expression(self):
+        e = parse_expression("")
+        assert not e.is_valid
+
+
+class TestValidateFreeRoot:
+    def test_valid_free_root(self):
+        assert validate_free_root("pens") is None
+        assert validate_free_root("far") is None
+
+    def test_reserved_token_rejected(self):
+        assert validate_free_root("mal") is not None   # reserved
+        assert validate_free_root("is") is not None    # suffix
+        assert validate_free_root("ad") is not None    # infix
+
+    def test_predefined_root_ok(self):
+        assert validate_free_root("emo") is None
+        assert validate_free_root("sci") is None
+
+    def test_too_long(self):
+        assert validate_free_root("toolong") is not None
+
+    def test_uppercase_rejected(self):
+        assert validate_free_root("Pens") is not None
+
+
+# tests/test_db.py
+"""DB tests using real production functions."""
+import sqlite3
+import pytest
+from utils.db_utils import (
+    load_features_not_processed, save_agent_output,
+    register_batch, mark_batch_consumed, get_unconsumed_batch
+)
+
+
+def insert_run(conn, run_id="run_test"):
     conn.execute("""
-        INSERT INTO features VALUES
-        (1,'random','test desc','[]',0.8,0.5,'layer1','sae_v1',
-         'http://x.com',datetime('now'))
-    """)
+        INSERT INTO runs (
+            run_id, git_commit, config_hash, prompt_hashes,
+            lexicon_version, lexicon_hash, corpus_hash,
+            models_json, use_temperature, temperature, seed,
+            started_at, completed_at, status, last_phase, total_cost_usd
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,'running',NULL,0.0)
+    """, (run_id, "abc123", "cfghash", "{}", "v1",
+          "lexhash", "corpushash", "{}", 0, None, 42,
+          "2026-01-01T00:00:00"))
+
+
+def insert_feature(conn, index=1, split="random"):
+    conn.execute("""
+        INSERT INTO features (
+            feature_index, split, nl_description, top_examples,
+            score_interp, activation_freq, layer, sae_version,
+            neuronpedia_url, loaded_at
+        ) VALUES (?,?,'desc','[]',0.8,0.5,'l1','sae1','http://x',
+                  '2026-01-01T00:00:00')
+    """, (index, split))
+
+
+def test_load_features_not_processed_empty(test_db):
+    """With no output at all, all features must be processed."""
+    import sqlite3
+    conn = sqlite3.connect(test_db)
+    insert_run(conn)
+    insert_feature(conn, index=1)
+    insert_feature(conn, index=2)
     conn.commit()
-    count = conn.execute("""
-        SELECT COUNT(*) FROM agent_outputs
-        WHERE feature_index = 1 AND agent_name = 'encoder'
-    """).fetchone()[0]
-    assert count == 0
     conn.close()
 
-def test_resume_after_crash(tmp_path):
-    """On resume, already-encoded features must not be reprocessed."""
-    db = make_test_db(tmp_path)
-    conn = sqlite3.connect(db)
-    conn.execute("""
-        INSERT INTO runs VALUES
-        ('run_test','abc123','cfghash','{}','v1','{}',0.3,42,
-         datetime('now'),NULL,'running',NULL,0.0)
-    """)
-    conn.execute("""
-        INSERT INTO features VALUES
-        (1,'random','desc','[]',0.8,0.5,'l1','sae1','http://x',datetime('now'))
-    """)
-    conn.execute("""
-        INSERT INTO features VALUES
-        (2,'random','desc2','[]',0.7,0.4,'l1','sae1','http://y',datetime('now'))
-    """)
-    # Feature 1 already encoded
-    conn.execute("""
-        INSERT INTO agent_outputs VALUES
-        ('out1','run_test',1,'encoder',1,'{"status":"encoded"}','raw',
-         'ok',NULL,100,50,NULL,0.0,'confidence',datetime('now'))
-    """)
+    pending = load_features_not_processed("run_test", "encoder", 1)
+    assert len(pending) == 2
+
+
+def test_load_features_not_processed_after_partial(test_db):
+    """After partial encoding, only unprocessed features are returned."""
+    import sqlite3
+    conn = sqlite3.connect(test_db)
+    insert_run(conn)
+    insert_feature(conn, index=1)
+    insert_feature(conn, index=2)
     conn.commit()
-    done = {
-        r[0] for r in conn.execute("""
-            SELECT feature_index FROM agent_outputs
-            WHERE run_id='run_test' AND agent_name='encoder' AND run_number=1
-        """).fetchall()
-    }
-    all_f = [r[0] for r in conn.execute(
-        "SELECT feature_index FROM features"
-    ).fetchall()]
-    to_encode = [f for f in all_f if f not in done]
-    assert to_encode == [2]
     conn.close()
+
+    # Simulate encoding of feature 1
+    save_agent_output(
+        run_id="run_test", feature_index=1, agent_name="encoder",
+        run_number=1, output_json={"status": "encoded"},
+        raw_output="raw", status="ok", error_msg=None,
+        tokens_input=100, tokens_output=50,
+        batch_id=None, cost_usd=0.001
+    )
+
+    # Only feature 2 should be returned
+    pending = load_features_not_processed("run_test", "encoder", 1)
+    assert [f["feature_index"] for f in pending] == [2]
+
+
+def test_batch_resume_after_crash(test_db):
+    """A submitted but unconsumed batch can be recovered."""
+    import sqlite3
+    conn = sqlite3.connect(test_db)
+    insert_run(conn)
+    conn.commit()
+    conn.close()
+
+    # Simulate submission without consumption
+    register_batch("batch_123", "run_test", "phase3",
+                   "encoder", 1, 100)
+
+    # Resume should find the batch
+    found = get_unconsumed_batch("run_test", "phase3", "encoder", 1)
+    assert found == "batch_123"
+
+    # After consumption, there is no unconsumed batch anymore
+    mark_batch_consumed("batch_123")
+    found_after = get_unconsumed_batch("run_test", "phase3", "encoder", 1)
+    assert found_after is None
 
 
 # tests/test_shuffle_baseline.py
-"""Tests for the shuffled MorphoRepr control."""
-
-def test_shuffle_within_split():
-    """Shuffle candidates must come from the same split."""
-    by_split = {
-        "easy": [
-            {"feature_index": 1, "expression": "0.9·ag-is",  "n_terms": 1},
-            {"feature_index": 2, "expression": "0.8·sci-o",  "n_terms": 1},
-            {"feature_index": 3, "expression": "0.7·emo-a",  "n_terms": 1},
-        ],
-        "hard": [
-            {"feature_index": 4, "expression": "0.6·dat-ad-o","n_terms": 1},
-        ]
-    }
-    for split, features in by_split.items():
-        valid_indices = {f["feature_index"] for f in features}
-        for feat in features:
-            candidates = [
-                f for f in features
-                if f["feature_index"] != feat["feature_index"]
-            ]
-            for c in candidates:
-                assert c["feature_index"] in valid_indices
-
-def test_shuffle_length_constraint():
-    """Only features with comparable length (±1 term) are candidates."""
-    features = [
-        {"feature_index": 1, "expression": "0.9·ag-is", "n_terms": 1},
-        {"feature_index": 2, "expression": "0.8·sci-o + 0.4·emo-a",
-         "n_terms": 2},
-        {"feature_index": 3, "expression": "0.7·emo-a", "n_terms": 1},
-    ]
-    max_diff = 1
-    target = features[0]
-    candidates = [
-        f for f in features
-        if f["feature_index"] != target["feature_index"]
-        and abs(f["n_terms"] - target["n_terms"]) <= max_diff
-    ]
-    # Feature 2 (n_terms=2, diff=1) → valid
-    # Feature 3 (n_terms=1, diff=0) → valid
-    assert len(candidates) == 2
-
-
-# tests/test_pipeline_e2e.py
-"""End-to-end test on 5 features — dev run level."""
+"""Tests for the shuffled control using real functions."""
+import sqlite3
 import pytest
-import subprocess
-import sys
-import os
+from baselines.shuffled import generate_shuffles
 
-def test_pipeline_5_features_end_to_end():
-    """
-    Run the complete pipeline on 5 features in dev mode.
-    Requires ANTHROPIC_API_KEY in the environment.
-    """
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        pytest.skip("ANTHROPIC_API_KEY not set — e2e test skipped")
 
-    result = subprocess.run(
-        [sys.executable, "orchestrator.py",
-         "--config", "configs/dev_run.yaml",
-         "--n-features", "5"],
-        capture_output=True, text=True, timeout=300
-    )
-    assert result.returncode == 0, \
-        f"Pipeline failed:\n{result.stderr}"
-    assert ("phase3" in result.stdout.lower()
-            or "phase3" in result.stderr.lower())
+def setup_test_db_with_features(test_db):
+    """Populate the test DB with encoded features."""
+    conn = sqlite3.connect(test_db)
+    conn.execute("""
+        INSERT INTO runs (
+            run_id, git_commit, config_hash, prompt_hashes,
+            lexicon_version, lexicon_hash, corpus_hash,
+            models_json, use_temperature, temperature, seed,
+            started_at, completed_at, status, last_phase, total_cost_usd
+        ) VALUES ('r1','c','h','{}','v1','lh','ch','{}',0,NULL,42,
+                  '2026-01-01',NULL,'running',NULL,0.0)
+    """)
+    for i in range(1, 6):
+        conn.execute("""
+            INSERT INTO features VALUES (?,
+                'random','desc','[]',0.8,0.5,'l1','s1','http://x',
+                '2026-01-01')
+        """, (i,))
+    for i in range(1, 6):
+        conn.execute("""
+            INSERT INTO agent_outputs (
+                output_id, run_id, feature_index, agent_name, run_number,
+                output_json, raw_output, status, error_msg,
+                tokens_input, tokens_output, batch_id, cost_usd,
+                coefficient_type, created_at
+            ) VALUES (?,?,?,'encoder',1,?,?,?,NULL,100,50,NULL,0.0,
+                      'confidence','2026-01-01')
+        """, (
+            f"out_{i}", "r1", i,
+            f'{{"status":"encoded","expression":"0.{i+5}·ag-is"}}',
+            "raw", "ok"
+        ))
+    conn.commit()
+    conn.close()
+
+
+def test_shuffle_stays_within_split(test_db):
+    """Check that generate_shuffles() produces intra-split shuffles."""
+    setup_test_db_with_features(test_db)
+    generate_shuffles("r1", n_repeats=3)
+
+    conn = sqlite3.connect(test_db)
+    rows = conn.execute(
+        "SELECT feature_index, source_feature FROM shuffle_controls"
+    ).fetchall()
+    conn.close()
+
+    assert len(rows) > 0
+    for row in rows:
+        assert row[0] != row[1]  # source ≠ target
+
+
+def test_shuffle_unique_constraint(test_db):
+    """Check that the UNIQUE constraint prevents duplicates."""
+    setup_test_db_with_features(test_db)
+    generate_shuffles("r1", n_repeats=3)
+    # Running it a second time must not insert duplicates
+    generate_shuffles("r1", n_repeats=3)  # INSERT OR IGNORE
+
+    conn = sqlite3.connect(test_db)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM shuffle_controls WHERE run_id='r1'"
+    ).fetchone()[0]
+    conn.close()
+
+    # With 5 features and 3 shuffles each = max 15 entries
+    assert count <= 15
 ```
 
 ---
 
-## 9. Final Orchestrator
+## 8. Final Orchestrator (v3)
 
 ```python
 # orchestrator.py
 """
-MorphoRepr scientific run entry point.
-Deterministic, no code modification, no agentic intervention.
+MorphoRepr v3 orchestrator — deterministic and auditable.
 
 Usage:
     python orchestrator.py --config configs/run_v1.yaml
     python orchestrator.py --config configs/dev_run.yaml --n-features 5
-    python orchestrator.py --config configs/run_v1.yaml --resume --run-id <id>
+    python orchestrator.py --config configs/run_v1.yaml --resume --run-id abc12345
 """
 import argparse
+import hashlib
 import json
 import logging
 import subprocess
@@ -1559,88 +1655,146 @@ logging.basicConfig(
 logger = logging.getLogger("orchestrator")
 
 from utils.config_utils import load_config, hash_config
-from utils.prompt_utils import register_prompts, verify_prompts_unchanged
+from utils.prompt_utils import (register_prompts, verify_prompts_unchanged,
+                                 hash_lexicon_canonical, hash_corpus_canonical)
 from utils.db_utils import get_conn, check_budget
 
-from agents import (loader, ranker, cluster, labeler, consistency,
-                    encoder, fidelity, steerer, predictor, judge, reporter)
+from agents import loader, ranker, cluster, labeler, consistency
+from agents import encoder, fidelity, steerer, predictor, judge, reporter
 from baselines import shuffled as shuffled_baseline
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="MorphoRepr Pipeline")
-    p.add_argument("--config",     required=True)
-    p.add_argument("--n-features", type=int, default=None)
-    p.add_argument("--resume",     action="store_true")
-    p.add_argument("--run-id",     default=None)
+    p = argparse.ArgumentParser()
+    p.add_argument("--config",      required=True)
+    p.add_argument("--n-features",  type=int, default=None)
+    p.add_argument("--resume",      action="store_true")
+    p.add_argument("--run-id",      default=None)
     return p.parse_args()
 
 
 def get_git_commit() -> str:
     try:
-        r = subprocess.run(["git","rev-parse","HEAD"],
-                           capture_output=True, text=True)
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True
+        )
         return r.stdout.strip()
     except Exception:
         return "unknown"
 
 
 def initialize_run(config: dict, args) -> str:
-    run_id    = str(uuid4())[:8]
-    git_hash  = get_git_commit()
-    cfg_hash  = hash_config(args.config)
-    p_hashes  = register_prompts(config["prompts"])
+    git_commit   = get_git_commit()
+    config_hash  = hash_config(args.config)
 
+    # Check config git_commit consistency against actual commit
+    config_commit = config.get("git_commit", "FILL_BEFORE_LAUNCH")
+    if config_commit != "FILL_BEFORE_LAUNCH" and config_commit != git_commit:
+        raise RuntimeError(
+            f"git_commit in config ({config_commit[:8]}) "
+            f"does not match current commit ({git_commit[:8]}). "
+            f"Update configs/run_v1.yaml before launching."
+        )
+
+    prompt_hashes  = register_prompts(config["prompts"])
+    lexicon_hash   = hash_lexicon_canonical("db/lexicon.json")
+    corpus_hash    = hash_corpus_canonical("db/features.db")
+
+    run_id = f"{config.get('run_id_prefix','run')}_{uuid4().hex[:8]}"
+
+    sampling = config.get("sampling", {})
     with get_conn() as conn:
         conn.execute("""
-            INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,NULL,'running',NULL,0.0)
+            INSERT INTO runs (
+                run_id, git_commit, config_hash, prompt_hashes,
+                lexicon_version, lexicon_hash, corpus_hash,
+                models_json, use_temperature, temperature, seed,
+                started_at, completed_at, status, last_phase, total_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'running', NULL, 0.0)
         """, (
-            run_id, git_hash, cfg_hash,
-            json.dumps(p_hashes),
-            config["lexicon_version"],
+            run_id, git_commit, config_hash,
+            json.dumps(prompt_hashes),
+            config["lexicon_version"], lexicon_hash, corpus_hash,
             json.dumps(config["models"]),
-            config["temperature"],
+            int(sampling.get("use_temperature", False)),
+            sampling.get("temperature"),
             config.get("seed"),
             datetime.utcnow().isoformat()
         ))
 
     logger.info(f"Run initialized: {run_id}")
-    logger.info(f"  Git commit  : {git_hash}")
-    logger.info(f"  Config hash : {cfg_hash}")
+    logger.info(f"  Git commit  : {git_commit[:16]}")
+    logger.info(f"  Config hash : {config_hash[:16]}")
+    logger.info(f"  Corpus hash : {corpus_hash[:16]}")
+    logger.info(f"  Lexicon hash: {lexicon_hash[:16]}")
     return run_id
+
+
+def verify_resume_integrity(run_id: str, config: dict, args):
+    """
+    Verify that nothing changed since the original run.
+    Raise an error if code, prompts, or config changed.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+    if not row:
+        raise RuntimeError(f"run_id {run_id} not found in DB")
+
+    current_git    = get_git_commit()
+    current_config = hash_config(args.config)
+    current_corpus = hash_corpus_canonical("db/features.db")
+    current_lexicon = hash_lexicon_canonical("db/lexicon.json")
+
+    errors = []
+    if row["git_commit"] != current_git:
+        errors.append(
+            f"Git commit changed: {row['git_commit'][:8]} → {current_git[:8]}"
+        )
+    if row["config_hash"] != current_config:
+        errors.append("Config changed since original run")
+    if row["corpus_hash"] != current_corpus:
+        errors.append("Corpus changed since original run")
+    if row["lexicon_hash"] != current_lexicon:
+        errors.append("Lexicon changed since original run")
+
+    # Check prompts
+    registered_hashes = json.loads(row["prompt_hashes"])
+    try:
+        verify_prompts_unchanged(config["prompts"], registered_hashes)
+    except RuntimeError as e:
+        errors.append(str(e))
+
+    if errors:
+        msg = "\n".join(f"  • {e}" for e in errors)
+        raise RuntimeError(
+            f"Resume impossible — modifications detected:\n{msg}\n\n"
+            f"To continue with modifications, create a new run."
+        )
+
+    logger.info(f"Run {run_id} integrity verified — resume authorized")
 
 
 def get_last_phase(run_id: str) -> str | None:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT last_phase FROM runs WHERE run_id = ?", (run_id,)
+            "SELECT last_phase FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()
     return row["last_phase"] if row else None
 
 
 def mark_phase_complete(run_id: str, phase: str):
     with get_conn() as conn:
-        conn.execute("UPDATE runs SET last_phase=? WHERE run_id=?",
-                     (phase, run_id))
+        conn.execute(
+            "UPDATE runs SET last_phase=? WHERE run_id=?",
+            (phase, run_id)
+        )
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     Path("checkpoints").mkdir(exist_ok=True)
-    Path(f"checkpoints/{run_id}_{phase}_{ts}.marker").touch()
-    logger.info(f"  Checkpoint: phase {phase} complete")
-
-
-def mark_run_complete(run_id: str):
-    with get_conn() as conn:
-        conn.execute("""
-            UPDATE runs SET status='completed', completed_at=?
-            WHERE run_id=?
-        """, (datetime.utcnow().isoformat(), run_id))
-    logger.info(f"Run {run_id} completed successfully")
-
-
-def mark_run_failed(run_id: str):
-    with get_conn() as conn:
-        conn.execute("UPDATE runs SET status='failed' WHERE run_id=?",
-                     (run_id,))
+    Path(f"checkpoints/{run_id}_{phase}_{ts}.ok").touch()
+    logger.info(f"  ✓ Phase {phase} complete")
 
 
 def print_cost_summary(run_id: str):
@@ -1653,47 +1807,34 @@ def print_cost_summary(run_id: str):
         total = conn.execute(
             "SELECT total_cost_usd FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()["total_cost_usd"]
-    logger.info("\n=== Cumulative Cost ===")
+    logger.info("=== Cumulative cost ===")
     for phase, cost in rows:
-        logger.info(f"  {phase:<20} ${cost:.3f}")
-    logger.info(f"  {'TOTAL':<20} ${total:.3f}")
+        logger.info(f"  {phase:<20} {cost:6.3f} $")
+    logger.info(f"  {'TOTAL':<20} {total:6.3f} $")
 
 
-def _run_baselines_p3(run_id: str):
+PHASES = [
+    ("p1_load",       lambda rid, cfg: loader.run(rid),           "SAE extraction"),
+    ("p1_rank",       lambda rid, cfg: ranker.run(rid, cfg),       "Split stratification"),
+    ("p2_cluster",    lambda rid, cfg: cluster.run(rid),           "Clustering"),
+    ("p2_label",      lambda rid, cfg: labeler.run(rid),           "Lexicon induction"),
+    ("p2_consistency",lambda rid, cfg: consistency.run(rid),       "Lexicon validation"),
+    ("p3_encode",     lambda rid, cfg: encoder.run(rid),           "Encoding (2 runs)"),
+    ("p3_fidelity",   lambda rid, cfg: fidelity.run(rid),          "Fidelity AUC-ROC"),
+    ("p3_baselines",  lambda rid, cfg: _run_baselines(rid),        "Baselines"),
+    ("p3_shuffle",    lambda rid, cfg: shuffled_baseline.generate_shuffles(rid), "Shuffled control"),
+    ("p4_steer",      lambda rid, cfg: steerer.run(rid, cfg),      "Steering"),
+    ("p4_predict",    lambda rid, cfg: predictor.run(rid),         "Causal prediction"),
+    ("p4_judge",      lambda rid, cfg: judge.run(rid),             "Causal validation"),
+    ("p5_report",     lambda rid, cfg: reporter.run(rid),          "Synthesis"),
+]
+
+
+def _run_baselines(run_id: str):
     from baselines import nl_labels, semantic_regex, keyword_tags
     nl_labels.run(run_id)
     semantic_regex.run(run_id)
     keyword_tags.run(run_id)
-
-
-PHASES = [
-    ("phase1_load",        lambda r, c: loader.run(r),
-     "SAE feature extraction"),
-    ("phase1_rank",        lambda r, c: ranker.run(r, c),
-     "Split stratification"),
-    ("phase2_cluster",     lambda r, c: cluster.run(r),
-     "Description clustering"),
-    ("phase2_label",       lambda r, c: labeler.run(r),
-     "Lexicon induction"),
-    ("phase2_consistency", lambda r, c: consistency.run(r),
-     "Lexicon consistency validation"),
-    ("phase3_encode",      lambda r, c: encoder.run(r),
-     "MorphoRepr encoding (2 runs)"),
-    ("phase3_fidelity",    lambda r, c: fidelity.run(r),
-     "Fidelity AUC-ROC"),
-    ("phase3_baselines",   lambda r, c: _run_baselines_p3(r),
-     "Phase 3 baselines"),
-    ("phase3_shuffle",     lambda r, c: shuffled_baseline.generate_shuffles(r),
-     "Shuffled control"),
-    ("phase4_steer",       lambda r, c: steerer.run(r, c),
-     "Activation steering"),
-    ("phase4_predict",     lambda r, c: predictor.run(r),
-     "Causal prediction"),
-    ("phase4_judge",       lambda r, c: judge.run(r),
-     "Causal validation"),
-    ("phase5_report",      lambda r, c: reporter.run(r),
-     "Synthesis and reporting"),
-]
 
 
 def run_pipeline(args):
@@ -1701,57 +1842,56 @@ def run_pipeline(args):
     config = load_config(args.config)
 
     if args.resume and args.run_id:
-        run_id     = args.run_id
+        run_id = args.run_id
+        verify_resume_integrity(run_id, config, args)
         last_phase = get_last_phase(run_id)
-        logger.info(f"Resuming run {run_id} from phase {last_phase}")
-        # Verify prompts have not changed since registration
-        with get_conn() as conn:
-            row = conn.execute(
-                "SELECT prompt_hashes FROM runs WHERE run_id=?", (run_id,)
-            ).fetchone()
-        verify_prompts_unchanged(
-            config["prompts"], json.loads(row["prompt_hashes"])
-        )
+        logger.info(f"Resuming run {run_id} from: {last_phase}")
     else:
-        run_id     = initialize_run(config, args)
+        run_id = initialize_run(config, args)
         last_phase = None
 
     phase_ids = [p[0] for p in PHASES]
 
     for phase_id, phase_fn, description in PHASES:
-        if last_phase and (phase_ids.index(phase_id)
-                           <= phase_ids.index(last_phase)):
-            logger.info(f"  {phase_id} already complete — skip")
+        if last_phase and phase_ids.index(phase_id) <= \
+           phase_ids.index(last_phase):
+            logger.info(f"⏭  {phase_id} already completed")
             continue
 
-        logger.info(f"\n{'='*55}")
-        logger.info(f"  {phase_id}: {description}")
-        logger.info(f"{'='*55}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"▶  {phase_id}: {description}")
+        logger.info(f"{'='*60}")
 
         try:
             phase_fn(run_id, config)
             mark_phase_complete(run_id, phase_id)
             print_cost_summary(run_id)
 
-            current_cost, over = check_budget(
+            cost, over = check_budget(
                 run_id, config["budget"]["max_cost_usd"]
             )
             if config["budget"]["abort_on_exceed"] and over:
                 raise RuntimeError(
-                    f"Budget exceeded: ${current_cost:.2f} >= "
-                    f"${config['budget']['max_cost_usd']}"
+                    f"Budget exceeded: {cost:.2f} $ >= "
+                    f"{config['budget']['max_cost_usd']} $"
                 )
 
         except Exception as e:
-            mark_run_failed(run_id)
-            logger.exception(f"Phase {phase_id} failed: {e}")
-            # In full frozen run mode: archive and stop.
-            # Do NOT wait for human correction.
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE runs SET status='failed' WHERE run_id=?",
+                    (run_id,)
+                )
+            logger.exception(f"Phase {phase_id} failed — run {run_id} archived")
             sys.exit(1)
 
-    mark_run_complete(run_id)
+    with get_conn() as conn:
+        conn.execute("""
+            UPDATE runs SET status='completed', completed_at=?
+            WHERE run_id=?
+        """, (datetime.utcnow().isoformat(), run_id))
     print_cost_summary(run_id)
-    logger.info(f"\nRun {run_id} complete. Results in db/features.db")
+    logger.info(f"\n✅ Run {run_id} complete — results in db/features.db")
 
 
 if __name__ == "__main__":
@@ -1760,97 +1900,92 @@ if __name__ == "__main__":
 
 ---
 
-## 10. Setup and Launch Sequence
-
-### Step 1 — Environment
+## 9. Setup Order
 
 ```bash
+# 1. Environment
 python -m venv morphorepr-env && source morphorepr-env/bin/activate
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
-mkdir -p db logs checkpoints
 sqlite3 db/features.db < db/schema.sql
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
 
-### Step 2 — Unit tests
-
-```bash
-pytest tests/test_parse.py tests/test_schema.py \
+# 2. Unit tests (without API key)
+pytest tests/test_parser.py tests/test_schema.py \
        tests/test_db.py tests/test_shuffle_baseline.py -v
-# All must pass before proceeding
-```
+# All tests must pass before continuing
 
-### Step 3 — Classifier calibration
-
-```bash
+# 3. Classifier calibration
 python classifiers/calibration/run_calibration.py
-# Must show PASS for all robust properties
-```
+# Must display ✅ PASS for negation, tense, code, modality, valence
 
-### Step 4 — Dev run (5 features)
+# 4. Steering access validation (BLOCKING — validate in dev run)
+python -c "from agents.steerer import _get_model, _get_sae_model; print('OK')"
+# If NotImplementedError: specify model loading before continuing
 
-```bash
+# 5. Dev run (5 features — plumbing)
 python orchestrator.py --config configs/dev_run.yaml --n-features 5
-# Check: DB populated, JSON parsed, cost < $1
-```
 
-### Step 5 — Pilot run (30–50 features)
-
-```bash
+# 6. Pilot run (40 features — calibration)
 python orchestrator.py --config configs/pilot_run.yaml --n-features 40
-# Calibrate thresholds and prompts if needed
+# Analyze: actual cost, coverage, parsed JSON, classifiers
+# Adjust thresholds and prompts if necessary
 # DECLARE any adjustment as calibration in the paper
-```
 
-### Step 6 — Freeze the configuration
-
-```bash
-# Commit all changes
-git add -A && git commit -m "Freeze config for full run v1"
-
-# Write the commit hash into the config
-echo "git_commit: $(git rev-parse HEAD)" >> configs/run_v1.yaml
-
-# Verify prompt hashes
+# 7. Full-run budget estimation
 python -c "
-import yaml
-from utils.prompt_utils import load_prompt, hash_prompt
-cfg = yaml.safe_load(open('configs/run_v1.yaml'))
-for agent, path in cfg['prompts'].items():
-    print(f'{agent}: {hash_prompt(load_prompt(path))}')
+import sqlite3
+conn = sqlite3.connect('db/features.db')
+cost = conn.execute(
+    'SELECT total_cost_usd FROM runs ORDER BY started_at DESC LIMIT 1'
+).fetchone()[0]
+n_pilot = 40
+n_full  = 500
+factor  = 3.0  # remaining phases not executed in pilot
+estimate = cost * (n_full / n_pilot) * factor
+print(f'Pilot cost: {cost:.2f} \$')
+print(f'Estimated full run: {estimate:.1f} \$')
 "
-```
+# Adjust max_cost_usd in run_v1.yaml accordingly
 
-### Step 7 — Full frozen run
+# 8. Freeze configuration
+git add -A && git commit -m "Freeze all parameters for full run v1"
+python -c "
+import subprocess
+commit = subprocess.check_output(
+    ['git','rev-parse','HEAD'], text=True
+).strip()
+print(f'Add to run_v1.yaml: git_commit: {commit}')
+"
+# Update run_v1.yaml with the exact commit
 
-```bash
+# 9. Full frozen run
 python orchestrator.py --config configs/run_v1.yaml
 # No intervention during execution
-# On failure: archive, analyse, fix, relaunch with --resume
-```
 
-### Step 8 — Resume after crash
-
-```bash
-# Find the interrupted run ID
+# 10. Resume after crash (if necessary)
+# ONLY if code, prompts, and config have NOT changed
 sqlite3 db/features.db "SELECT run_id, last_phase, status FROM runs"
-
 python orchestrator.py --config configs/run_v1.yaml \
-       --resume --run-id <run_id>
-# Prompts are verified automatically — any modification is detected
+       --resume --run-id <interrupted_run_id>
+# If integrity check fails → create a new run with a new commit
 ```
 
 ---
 
-## Role of Claude Code in This Protocol
+## 10. Role of Claude Code
 
-Claude Code intervenes **only** during development phases:
+Claude Code is used **only outside the full frozen run**:
 
-- writing and debugging agent scripts
-- generating classifier calibration files
-- analysing pilot run intermediate results
-- producing readable reports from SQLite data
-- suggesting fixes when a phase fails during development
+**Allowed:**
+- Write and debug agents, classifiers, and utilities
+- Generate classifier calibration files
+- Analyze intermediate pilot-run results
+- Produce readable reports from the SQLite DB
+- Suggest corrections if a phase fails during a dev or pilot run
+- Implement `steerer.py` once model access has been validated
 
-Claude Code **never** intervenes during the full frozen run. The scientific run is driven exclusively by `orchestrator.py` with a frozen configuration.
+**Forbidden during the full frozen run:**
+- Modify any code, prompt, or config file
+- Intervene in the orchestrator while it is running
+- Interpret errors and propose automatic fixes
+- Relaunch a failed phase without explicit human validation
