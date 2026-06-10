@@ -1,4 +1,5 @@
-# MorphoRepr: A Morphologically-Structured Meta-Language for Human-Readable Projection of LLM Internal Representations
+# MorphoRepr: A Morphologically Structured Controlled Language for SAE Feature Description in LLMs
+## A Position Paper and Evaluation Protocol
 
 **Michaël Launay**
 Logikascium (EURL), Fretin, France
@@ -7,48 +8,45 @@ michaellaunay@logikascium.com
 
 ---
 
-*Preprint — submitted to arXiv cs.CL / HAL*
-*Version 0.23 — June 2026*
+*Preprint — position paper and evaluation protocol — submitted to arXiv cs.CL / HAL*
+*Version 0.24 — June 2026*
+*Supersedes version 0.23. No experimental claims are made in this version; results will be reported upon completion of the pipeline run.*
 
 ---
 
 ## Abstract
 
-No natural language provides sufficient expressive power to faithfully describe the internal representations of large language models (LLMs). While agglutinative and logically regular languages such as Esperanto offer structural properties — compositionality, morphological transparency, and unambiguous suffix semantics — that are theoretically better suited to this task than analytic languages, even such languages can only capture a small fraction of the information encoded in high-dimensional activation spaces. This limitation arises because each activation vector does not represent a word in isolation, but encodes its contextual interactions with the surrounding tokens and the broader discourse context — a type of relational, graded, and continuous information that no natural language, and no existing formal language designed to eliminate ambiguity, can express without becoming either lossy or unreadably verbose.
+Natural language descriptions of Sparse Autoencoder (SAE) features in large language models (LLMs) are accurate but insufficiently structured for systematic evaluation, cross-feature comparison, statistical aggregation, and causal prediction. They are vague, inconsistent across annotation runs, and resist formal manipulation. We propose **MorphoRepr**, a morphologically structured controlled language inspired by Esperanto's agglutinative grammar, designed as a human-readable annotation layer for the sparse features produced by SAEs trained on LLM activations. Each MorphoRepr expression encodes human hypotheses about the semantics of one or more SAE latents as a compositional string of morphemes with formally defined semantics, weighted by their activation coefficients. MorphoRepr is not claimed to decode the internal representations of LLMs; it encodes structured human hypotheses about SAE latent semantics, hypotheses that must be validated by activation prediction and causal intervention experiments.
 
-We propose **MorphoRepr**, a morphologically-structured meta-language inspired by Esperanto's agglutinative grammar, designed as a human-readable projection layer over the sparse, disentangled features produced by Sparse Autoencoders (SAEs) trained on LLM activations. Each MorphoRepr expression maps one or more SAE features to a compositional string of morphemes with formally defined semantics, weighted by their activation coefficients. This approach draws a structural analogy with the abstraction hierarchy of Model-Driven Engineering (MDE): just as the MOF meta-metamodel defines a self-describing tower of abstraction levels (M0–M3) where each level describes the one below it, MorphoRepr operates as an interpretability layer that describes activation-level representations in terms of human-legible compositional primitives — without claiming to be exhaustive at the level of raw geometry.
+We present the formal framework, a five-phase agentic evaluation pipeline, and a complete evaluation protocol specifying coverage, fidelity, and causal validity metrics. We identify the key open question: whether agglutinative morphological composition provides a measurable advantage over existing structured annotation approaches — in particular Semantic Regexes (Boggust et al., 2025) — in terms of annotation consistency, compactness, and causal predictive power. Experimental results will be reported in a subsequent version upon completion of the pipeline run.
 
-The goal is not to fully decode an LLM's internal state, but to provide a sufficiently precise and consistent human-readable approximation that enables auditing, steering, and causal analysis of model behavior at the feature level.
-
-In this paper, we propose a formal framework for this approach and describe a five-phase agentic AI pipeline designed to evaluate its feasibility. We outline an evaluation protocol to measure coverage rates, morpheme utilization statistics, and causal alignment scores, and discuss which categories of features are expected to resist morphological encoding and why. Experimental results will be reported in a subsequent version upon completion of the pipeline run.
-
-**Beyond Interpretation: Toward MorphoRepr-Guided Memory Consolidation in LLMs.** Should MorphoRepr prove viable as a structured projection layer over SAE features, a natural extension arises: inverting the pipeline to write new knowledge directly into model weights, rather than merely reading from activation spaces. We sketch a research trajectory in which MorphoRepr-encoded content — expressed in Esperanto and parsed into compositional morpheme chains — serves as a semantically addressed writing interface for targeted model editing. This would build upon existing model editing techniques such as ROME and MEMIT, which demonstrate that factual associations can be localized to specific MLP weight matrices in transformer layers and surgically modified without global degradation. We further propose a hybrid memory architecture inspired by the Complementary Learning Systems (CLS) theory of biological memory consolidation, in which an external vector store serves as a fast episodic buffer and a consolidation mechanism selectively transfers validated knowledge into model weights via low-rank adaptation (LoRA), mirroring hippocampal-to-neocortical replay observed during sleep in biological systems.
-
-**Keywords:** mechanistic interpretability, sparse autoencoders, agglutinative morphology, Esperanto, feature projection, model editing, memory consolidation, agentic AI
+**Keywords:** mechanistic interpretability, sparse autoencoders, agglutinative morphology, Esperanto, SAE feature annotation, controlled language, causal validity
 
 ---
 
 ## 1. Introduction
 
-The internal representations of large language models (LLMs) remain largely opaque to human inspection. A transformer processing the sentence *"She had not finished the task"* encodes this meaning not as a structured linguistic object, but as a high-dimensional activation vector — or more precisely, as a superposition of thousands of weakly active directions in a space of 768 to 4096 dimensions, where each direction corresponds to a latent feature with no guaranteed human-interpretable correlate.
+The internal representations of large language models (LLMs) remain largely opaque to human inspection. Sparse Autoencoders (SAEs) have emerged as a scalable tool for decomposing these representations into sparser, more monosemantic feature directions (Bricken et al., 2023; Cunningham et al., 2023; Anthropic, 2024). The resulting latents are more interpretable than individual neurons, but the problem of *labeling* them at scale — assigning descriptions that are precise, consistent, and formally manipulable — remains a significant bottleneck.
 
-The field of mechanistic interpretability has made significant progress in decomposing these representations. Sparse Autoencoders (SAEs), in particular, have emerged as a scalable tool for disentangling the polysemantic superposition of model neurons into sparser, more monosemantic feature directions (Bricken et al., 2023; Cunningham et al., 2023; Templeton et al., 2024). Yet the problem of *labeling* these features — of assigning them human-readable descriptions that are precise, consistent, and compositionally structured — remains open. Current approaches rely on natural language labels generated by LLMs, which are accurate but vague, inconsistent across runs, and poorly suited to formal reasoning about feature relationships (Boggust et al., 2025).
+Current approaches rely on natural language labels generated by LLMs, which are useful for human interpretation but exhibit well-known limitations as a formal notation system: vagueness, run-to-run inconsistency, and unsuitability for compositional reasoning or statistical comparison across large feature inventories (Boggust et al., 2025; Paulo et al., 2024). The challenge is not that natural language is inexpressive in principle — it can describe almost anything, at the cost of verbosity. The challenge is that natural language descriptions are **insufficiently structured** for the systematic tasks that large-scale interpretability requires: cross-feature comparison, morpheme-level statistics, causal prediction from the label alone, and programmatic search over feature spaces.
 
-This paper proposes a different approach, motivated by a linguistic observation: the structural properties that make Esperanto an unusually learnable natural language — its agglutinative morphology, its bijective suffix-to-meaning mapping, its compositional word formation — are precisely the properties one would want in a notation system for SAE features. A feature encoding "negation of a past action by a human agent" could be written `mal-far-int-a` rather than a free-form English phrase, with each morpheme carrying a formally defined and bounded meaning.
+This paper proposes **MorphoRepr**, a controlled language for SAE feature annotation that addresses these limitations by borrowing Esperanto's structural logic — agglutinative composition, a finite morpheme inventory, transparent derivational rules — and extending it with a controlled vocabulary of semantic primitives empirically derived from the SAE feature space of a production-scale LLM. The key claim is not that MorphoRepr captures the internal geometry of LLM representations — it explicitly does not — but that it may provide a more consistent, compact, and causally predictive annotation system than existing alternatives for the subset of SAE latents that have stable, morpho-semantically expressible content.
 
-We do not propose to use Esperanto itself as a representation language — its lexicon is too small, its coverage of abstract computational concepts too limited, and its natural-language ambiguities too numerous. We propose instead **MorphoRepr**, a formal meta-language that borrows Esperanto's *structural logic* — its agglutinative composition rules, its finite morpheme inventory, its transparent derivational system — and extends it with a controlled vocabulary of primitives empirically derived from the SAE feature space of a production-scale LLM.
-
-The structural analogy we draw with Model-Driven Engineering (MDE) is not merely decorative. In MDE, the Meta-Object Facility (MOF) defines a tower of abstraction levels (M0: instances, M1: models, M2: metamodels, M3: the MOF itself) where each level describes the one below it, and M3 is self-describing. MorphoRepr occupies an analogous position: it is a language that describes the language of LLM features, itself defined in terms of a finite set of formally specified primitives. This self-referential structure is precisely what gives it the potential to scale — the same morpheme inventory that describes a feature today can describe a new feature tomorrow, without requiring manual extension of a natural-language vocabulary.
+**A note on scope.** MorphoRepr encodes human hypotheses about SAE latent semantics. A SAE latent is not equivalent to a human concept: latents are learned directions in activation space, dependent on reconstruction objectives, sparsity constraints, corpus statistics, and model architecture. Their interpretability is promising but partial and dependent on the quality of the SAE training. MorphoRepr descriptions are hypotheses about latent content, not ground truth representations of model internals.
 
 ### 1.1 Contributions
 
 This paper makes the following contributions:
 
-1. **Conceptual**: We formalize the notion of a morphologically-structured meta-language for SAE feature annotation, and establish its theoretical grounding in the Linear Representation Hypothesis and the Superposition Hypothesis.
+1. **Conceptual**: We propose MorphoRepr as a controlled language for SAE feature annotation and establish its theoretical grounding in the Linear Representation Hypothesis and the Superposition Hypothesis.
 
-2. **Methodological**: We describe a five-phase agentic AI pipeline for empirically inducing a MorphoRepr lexicon from SAE features and specify an evaluation protocol for coverage and causal validity.
+2. **Methodological**: We describe a five-phase agentic AI pipeline for empirically inducing a MorphoRepr lexicon from SAE features and specify a complete evaluation protocol for coverage, fidelity, and causal validity, including baseline comparisons against natural language labels and Semantic Regexes.
 
-3. **Prospective**: We sketch a research trajectory extending MorphoRepr from a read-only interpretability tool to a write-enabled model editing interface and, ultimately, a biologically-inspired memory consolidation architecture.
+3. **Prospective**: We identify the open research questions that subsequent experimental versions of this work must address, and sketch a longer-term research agenda toward MorphoRepr-guided model editing.
+
+### 1.2 Paper Status
+
+This paper is a **position paper and evaluation protocol**. It presents a formal framework and a complete experimental design; it does not report experimental results. Results will be reported in a subsequent version (v1.0) upon completion of the agentic pipeline run described in Section 4.
 
 ---
 
@@ -58,27 +56,29 @@ This paper makes the following contributions:
 
 The Linear Representation Hypothesis (LRH) posits that neural networks encode interpretable concepts as linear directions in their activation spaces (Mikolov et al., 2013; Park et al., 2023). The Superposition Hypothesis (Elhage et al., 2022) further proposes that models compress a large number of such features into a smaller number of neurons by exploiting approximate orthogonality, creating polysemantic neurons that respond to multiple unrelated concepts.
 
-Sparse Autoencoders address superposition by projecting activations into a higher-dimensional space while enforcing sparsity, causing each input to activate only a small number of learned features. Bricken et al. (2023) demonstrate that SAE features are more monosemantic and more interpretable than individual neurons, as measured by automated interpretability scoring. Templeton et al. (2024) scale this approach to production models, finding features corresponding to specific named entities, syntactic constructions, and abstract semantic concepts.
+Sparse Autoencoders address superposition by projecting activations into a higher-dimensional space while enforcing sparsity, causing each input to activate only a small number of learned features. Bricken et al. (2023) demonstrate that SAE features are more monosemantic and more interpretable than individual neurons, as measured by automated interpretability scoring. Anthropic (2024) scale this approach to production models (Claude 3 Sonnet), finding features corresponding to specific named entities, syntactic constructions, and abstract semantic concepts. Gao et al. (2024) provide a complementary scaling analysis of SAE training dynamics, reconstruction quality, and sparsity trade-offs.
 
-The current bottleneck in SAE-based interpretability is *labeling*: assigning human-readable descriptions to the tens of thousands of features discovered by large SAEs. Existing approaches use LLMs to generate natural language descriptions by inspecting high-activating examples (Bills et al., 2023; Paulo et al., 2024). These descriptions are accurate but exhibit the well-known limitations of natural language as a formal notation: vagueness, inconsistency across runs, and the impossibility of compositional reasoning.
+An important caveat: SAE latents are learned decompositions, not ground-truth feature detectors. They depend on reconstruction objectives, sparsity penalties, dictionary size, training corpus, and model architecture. A latent with a plausible natural language description is not necessarily a clean human concept; it may be a statistical artifact, a corpus-specific regularity, or a superposition of multiple weaker patterns. Any annotation system — including MorphoRepr — encodes hypotheses about latent content, not facts about model internals.
+
+The current bottleneck in SAE-based interpretability is *labeling*: assigning human-readable descriptions to the tens of thousands of features discovered by large SAEs. Existing approaches use LLMs to generate natural language descriptions by inspecting high-activating examples (Bills et al., 2023; Paulo et al., 2024). These descriptions are accurate but insufficiently structured for systematic evaluation and formal reasoning.
 
 ### 2.2 Structured Languages for Feature Annotation
 
-Boggust et al. (2025) introduce *Semantic Regexes*, a structured language for automatically describing LLM features by combining primitives for exact token patterns, syntactic word forms, and semantic categories with modifiers for contextualization, composition, and quantification. Semantic Regexes match the accuracy of natural language descriptions while yielding more concise and consistent outputs. This work is the closest antecedent to MorphoRepr in the current literature.
+Boggust et al. (2025) introduce *Semantic Regexes*, a structured language for automatically describing LLM features by combining primitives for exact token patterns, syntactic word forms, and semantic categories with modifiers for contextualization, composition, and quantification. Semantic Regexes match the accuracy of natural language descriptions while yielding more concise and consistent outputs. This work is the closest antecedent to MorphoRepr in the current literature and constitutes the primary baseline against which MorphoRepr must be evaluated.
 
-The key difference is structural: Semantic Regexes are a pattern-matching language in the tradition of regular expressions, where primitives are combined by logical operators (AND, OR, NOT, context). MorphoRepr is an *agglutinative* language, where primitives are combined by concatenation following morphological rules, and the resulting expression is a single readable token rather than a formula. This distinction matters for human usability: `0.87·mal-far-int-e` is readable and memorable in a way that `¬(ag:past & subject:human)` is not.
+The key structural difference between MorphoRepr and Semantic Regexes is the composition mechanism. Semantic Regexes are a pattern-matching language in the tradition of regular expressions, where primitives are combined by logical operators (AND, OR, NOT, context). MorphoRepr is an *agglutinative* controlled language, where primitives are combined by concatenation following morphological rules, producing a single pronounceable token rather than a formula. Whether this distinction produces a measurable advantage in annotation consistency, cognitive load, or causal predictive power is the central empirical question this paper prepares to answer.
+
+We note that the claim of superior human readability — that `0.87·mal-far-int-e` is more readable than `¬(ag:past & subject:human)` — is an ergonomic hypothesis, not an established result. Some readers may find explicit logical operators clearer. This will be tested in the evaluation protocol (Section 4.4).
 
 ### 2.3 Model Editing
 
-ROME (Meng et al., 2022) and MEMIT (Meng et al., 2023) demonstrate that factual knowledge in transformer LLMs can be localized to specific MLP weight matrices and surgically modified. The key insight is that MLP layers in transformers function as associative memories, with key-value pairs corresponding to factual associations. ROME computes a rank-one update to a target weight matrix that inserts a new key-value pair while minimally disrupting existing associations.
+ROME (Meng et al., 2022) and MEMIT (Meng et al., 2023) demonstrate that factual knowledge in transformer LLMs can be localized to specific MLP weight matrices and surgically modified. The key insight is that MLP layers in transformers function as associative memories, with key-value pairs corresponding to factual associations.
 
-The persistent limitation of current model editing approaches is *localization*: determining which weight matrices to modify for a given piece of knowledge requires an empirical causal tracing procedure that is expensive and imperfect. MorphoRepr addresses this by providing a principled semantic map from morphological expressions to SAE feature indices to layer-specific weight directions, potentially transforming localization from an empirical search into a structured lookup.
+These techniques are relevant as a longer-term application target for MorphoRepr: if MorphoRepr encodings can be validated as causally predictive of model behavior at the feature level, they may eventually serve as a structured address space for model editing. This direction is discussed briefly in Section 5 (Research Agenda) but does not constitute an experimental contribution of the present paper.
 
 ### 2.4 Complementary Learning Systems
 
-The Complementary Learning Systems (CLS) theory (McClelland et al., 1995; Kumaran et al., 2016) proposes that biological memory is organized into two complementary systems: the hippocampus, which encodes episodic memories rapidly and specifically, and the neocortex, which encodes semantic knowledge slowly and in a distributed fashion. Memory consolidation occurs when the hippocampus replays recent episodes to the neocortex during sleep, gradually integrating new information into long-term semantic knowledge.
-
-The analogy with LLM memory architectures is direct: RAG systems and external vector stores function as hippocampal buffers (fast, specific, episodic), while model weights function as neocortical long-term memory (slow, distributed, semantic). MorphoRepr-guided model editing would provide the consolidation mechanism — the replay — that bridges these two systems.
+The Complementary Learning Systems (CLS) theory (McClelland et al., 1995; Kumaran et al., 2016) proposes that biological memory is organized into hippocampal (fast, episodic) and neocortical (slow, semantic) systems. The analogy with LLM memory architectures — RAG as hippocampal buffer, model weights as neocortical long-term memory — motivates the longer-term research agenda sketched in Section 5.
 
 ---
 
@@ -86,17 +86,17 @@ The analogy with LLM memory architectures is direct: RAG systems and external ve
 
 ### 3.1 Design Principles
 
-MorphoRepr is designed according to four principles that distinguish it from both natural language annotation and existing formal notation systems:
+MorphoRepr is designed according to four principles:
 
-**Morphological compositionality.** Every MorphoRepr expression is a finite concatenation of morphemes drawn from a fixed inventory. The meaning of an expression is fully determined by the meanings of its constituent morphemes and their order of composition. No expression requires external reference to be interpreted.
+**Morphological compositionality.** Every MorphoRepr expression is a finite concatenation of morphemes drawn from a fixed inventory. The meaning of an expression is fully determined by the meanings of its constituent morphemes and their order of composition.
 
-**Weighted activation encoding.** Each morpheme in an expression is preceded by a real-valued coefficient in [0.0, 1.0] representing the normalized activation strength of the corresponding SAE feature. A complete expression has the form:
+**Weighted activation encoding.** Each term in an expression is preceded by a real-valued coefficient in [0.01, 1.00] representing the normalized activation strength of the corresponding SAE latent. A complete expression has the form:
 
 ```
 α₁·m₁[-m₂[-m₃]] [+ α₂·m₄[-m₅] [+ ...]]
 ```
 
-where `mᵢ` are morphemes, `-` denotes agglutinative concatenation, `+` denotes additive feature combination, and `αᵢ` are activation coefficients. For example:
+where `mᵢ` are morphemes, `-` denotes agglutinative concatenation, `+` denotes additive feature combination, and `αᵢ ∈ [0.01, 1.00]` are activation coefficients. For example:
 
 ```
 0.87·mal-far-int-e  +  0.41·pens-ad-is
@@ -106,13 +106,13 @@ is read as: *"not having acted (strength 0.87) plus having continued to think (s
 
 **Formal morpheme semantics.** Each morpheme in the inventory has a formally specified definition consisting of: (a) a denotation in terms of a semantic primitive, (b) a scope statement specifying what the morpheme covers and what it excludes, and (c) a set of attested SAE features that the morpheme reliably encodes.
 
-**Bounded expressiveness.** MorphoRepr does not attempt to encode all information in an activation vector. It is explicitly designed as a *lossy projection* that captures the morpho-syntactic and broadly semantic content of SAE features while acknowledging that pragmatic, cultural, and deeply contextual content lies outside its scope. The residual — the information not captured by any MorphoRepr expression — is a first-class output of the system, not a failure mode.
+**Bounded expressiveness.** MorphoRepr is explicitly designed as a *lossy projection*. It captures the morpho-syntactic and broadly semantic content of SAE features. Pragmatic, cultural, named-entity-specific, and deeply contextual content lies outside its scope by design. The residual — features the system cannot encode with confidence ≥ 0.50 — is a first-class output (UNCOVERED), not a failure mode, and contributes to understanding the boundary between morpho-semantic and contextual-pragmatic content in LLM feature space.
 
 ### 3.2 The Morpheme Inventory
 
-The MorphoRepr inventory is organized into five categories, each inspired by Esperanto's grammatical system but extended to cover the semantic terrain of LLM activation features. Following the grammar formalized in Appendix A, **domain morphemes serve as roots** (the semantic core of a word), while polarity morphemes serve as prefixes that modify those roots. Free roots — induced by the agentic pipeline for concepts not covered by the predefined vocabulary — are also permitted and denoted by lowercase letter sequences of 2–5 characters (e.g., `far`, `pens`, `ver`); see footnote 1.
+The MorphoRepr inventory is organized into five categories. Following the grammar formalized in Appendix A, **domain morphemes serve as roots** (the semantic core of a word), while polarity morphemes serve as prefixes. Free roots — induced by the agentic pipeline for concepts not covered by the predefined vocabulary — are permitted and denoted by lowercase letter sequences of 2–5 characters; see footnote 1.
 
-**Temporal morphemes** (suffixes encoding verb tense and aspect):
+**Temporal suffixes** (encode tense and aspect; constitute the `suffix` production when no syntactic role suffix is used):
 
 | Morpheme | Meaning | Esperanto analogue |
 |----------|---------|-------------------|
@@ -143,7 +143,7 @@ The MorphoRepr inventory is organized into five categories, each inspired by Esp
 | `plej-` | superlative | `plej` |
 | `duon-` | partial, approximate | `duon-` |
 
-**Domain roots** (predefined semantic field roots; these are the `root` production in the grammar):
+**Domain roots** (predefined semantic field roots; these are the `root-predefined` production in the grammar):
 
 | Root | Meaning | Notes |
 |------|---------|-------|
@@ -156,7 +156,7 @@ The MorphoRepr inventory is organized into five categories, each inspired by Esp
 | `tem` | time, sequence, order | covers temporal ordering features |
 | `lok` | location, place | covers spatial grounding features |
 
-**Syntactic role suffixes** (the final element of every word):
+**Syntactic role suffixes** (the final element of a word when the word is nominal, adjectival, adverbial, or infinitival rather than verbal):
 
 | Morpheme | Meaning | Esperanto analogue |
 |----------|---------|-------------------|
@@ -165,65 +165,62 @@ The MorphoRepr inventory is organized into five categories, each inspired by Esp
 | `-e` | adverb (manner, degree) | adverb suffix `-e` |
 | `-i` | infinitive (abstract action) | infinitive suffix `-i` |
 
+**Note on suffix types.** MorphoRepr uses two distinct suffix families: *syntactic role suffixes* (`-o`, `-a`, `-e`, `-i`) and *tense suffixes* (`-as`, `-is`, `-os`, `-us`). A word ends in exactly one suffix. A word with a tense suffix is verbal; a word with a syntactic role suffix is nominal, adjectival, adverbial, or infinitival. This distinction is made explicit in the grammar (Appendix A). MorphoRepr is not strict Esperanto morphology; it borrows Esperanto's structural logic while adapting the suffix system for annotation purposes.
+
 ---
 
-*Footnote 1: Free roots such as `far` (to do/make) and `pens` (to think) are not part of the predefined vocabulary but are valid MorphoRepr roots because they satisfy the grammar's `root ::= [a-z]{2,5}` production. They are induced by the agentic pipeline (Phase 2) when no predefined domain root covers a feature cluster. Free roots inherit all composition rules and must be registered in the versioned lexicon.*
+*Footnote 1: Free roots such as `far` (to do/make) and `pens` (to think) are valid MorphoRepr roots under the grammar's `root-free ::= [a-z]{2,5}` production. They are induced by the agentic pipeline (Phase 2) when no predefined domain root covers a feature cluster. Free roots must be registered in the versioned lexicon before use. A free root may not be identical to any prefix, infix, or suffix already defined in the inventory (e.g., `mal`, `ne`, `ad`, `ist`, `as`, `is`, `os` are reserved). Unregistered free roots are syntactically valid but semantically undefined.*
 
 ---
 
 ### 3.3 Example Encodings
 
-The following examples illustrate MorphoRepr encodings for SAE features drawn from the public Neuronpedia interface for Claude 3 Sonnet. Each encoding is parsed against the grammar of Appendix A to verify structural validity.
+The following examples illustrate MorphoRepr encodings for SAE features. **These examples are pedagogical illustrations**, not experimentally validated encodings. Each encoding is parsed against the grammar of Appendix A to verify structural validity; encoding choices reflect informed human judgment and will be subjected to the causal validation protocol of Section 4.3. Feature indices and descriptions are drawn from the public Neuronpedia interface for Claude 3 Sonnet (layer and SAE version to be specified in the experimental version of this paper).
 
 **Feature #892** (natural language description: *"tokens in past-tense contexts, especially completed actions"*):
 ```
 0.91·ag-is
 ```
-Parse: `ag` (domain root) + `-is` (suffix). Reading: *"completed physical action (past)"*, strength 0.91.
+Parse: `ag` (domain root) + `-is` (tense suffix, past). Reading: *"completed physical action (past)"*, strength 0.91. Note: the tense suffix `-is` is used here because the feature encodes a verbal, temporal property; `-o` would encode action-as-entity.
 
 **Feature #1204** (description: *"negation markers and negative polarity items"*):
 ```
 0.88·mal-o  +  0.34·ne-a
 ```
-Parse, term 1: `mal-` (polarity prefix) + implied root `∅` → here `mal` functions as root¹ + `-o` (suffix). Parse, term 2: `ne-` + `-a`. Reading: *"negation as entity (0.88) plus absence as property (0.34)"*.
+Parse, term 1: `mal` (root-predefined, permitted under `root ::= [a-z]{2,5}` when used as root) + `-o` (syntactic role suffix). Parse, term 2: `ne` (root-predefined) + `-a`. Reading: *"negation as entity (0.88) plus absence as property (0.34)"*.
 
-> ¹ *Note on `mal-o` and `ne-a`*: In these two cases, the polarity morphemes `mal` and `ne` function directly as roots (a construction permitted in Esperanto: `malo` = "the opposite", `neo` = "the no"). This is the only case where a polarity morpheme doubles as a root; the grammar permits it under the `root ::= [a-z]{2,5}` production when no domain root is applicable.
+> *Note on `mal-o` and `ne-a`*: In these two cases, `mal` and `ne` function directly as roots — a construction permitted in Esperanto (`malo` = "the opposite") and allowed by the `root-predefined` production which explicitly includes `mal` and `ne`. This is the only case where a polarity morpheme also serves as root. The grammar resolves the ambiguity by requiring that when `mal` or `ne` appears without a following domain root, it is parsed as `root-predefined`, not as `prefix`. Encoders must declare this parse choice explicitly.
 
 **Feature #3871** (description: *"human agents performing intentional actions, especially in narrative contexts"*):
 ```
 0.79·soc-ant-o  +  0.45·ag-int-a
 ```
-Parse, term 1: `soc` (domain root) + `-ant-` (participial infix) + `-o` (suffix). Parse, term 2: `ag` (domain root) + `-int-` (participial infix) + `-a` (suffix). Reading: *"social actor currently acting (0.79) plus entity that has physically acted (0.45)"*.
+Parse, term 1: `soc` (root) + `-ant-` (infix) + `-o` (suffix). Parse, term 2: `ag` (root) + `-int-` (infix) + `-a` (suffix). Reading: *"social actor currently acting (0.79) plus entity that has physically acted (0.45)"*.
 
 **Feature #4102** (description: *"Python code involving for-loops and iteration patterns"*):
 ```
 0.94·dat-ad-o
 ```
-Parse: `dat` (domain root) + `-ad-` (participial infix, iterative) + `-o` (suffix). Reading: *"iterative data/code process"*, strength 0.94.
+Parse: `dat` (root) + `-ad-` (infix, iterative) + `-o` (suffix). Reading: *"iterative data/code process"*, strength 0.94. **Limitation acknowledged**: this encoding compresses "Python for-loop" into a generic iterative-data-entity. It cannot distinguish between code iteration, numerical series, textual repetition, or syntactic patterns. This is a known limitation of the predefined domain root vocabulary and motivates free root induction.
 
 **Feature #7823** (description: *"tokens occurring in emotionally negative contexts, especially grief and loss"*):
 ```
 0.86·mal-emo-a  +  0.51·pens-is
 ```
-Parse, term 1: `mal-` (polarity prefix) + `emo` (domain root) + `-a` (suffix). Parse, term 2: `pens` (free root, induced) + `-is` (suffix). Reading: *"negative affective property (0.86) plus past cognitive state (0.51)"*.
+Parse, term 1: `mal-` (prefix) + `emo` (root) + `-a` (suffix). Parse, term 2: `pens` (free root, induced) + `-is` (tense suffix). Reading: *"negative affective property (0.86) plus past cognitive state (0.51)"*. **Encoding rationale**: `pens-is` captures the retrospective, ruminating character of grief contexts; alternative encodings (e.g., `mal-emo-o`) were considered but deemed less specific. This rationale will be systematically elicited and compared across annotation runs in the evaluation protocol.
 
 ### 3.4 Relationship to the MDE Abstraction Hierarchy
 
-Model-Driven Engineering organizes modeling artifacts into four abstraction levels:
+*(Note: this section provides an optional structural analogy useful for readers with a Model-Driven Engineering background. It does not constitute a scientific justification for MorphoRepr and may be skipped without loss of continuity.)*
 
-- **M0**: Real-world instances (a specific running process)
-- **M1**: Models describing instances (a UML object diagram)
-- **M2**: Metamodels describing model structure (the UML metamodel)
-- **M3**: The MOF, the self-describing meta-metamodel
+Model-Driven Engineering organizes modeling artifacts into four abstraction levels (M0: instances, M1: models, M2: metamodels, M3: the MOF meta-metamodel). MorphoRepr can be understood by analogy:
 
-MorphoRepr occupies a position analogous to M2 in this hierarchy, applied to the domain of LLM representations:
+- **M0**: A specific token in context, with its activation vector
+- **M1**: A SAE latent — a learned direction in activation space with a natural language description
+- **M2**: A MorphoRepr expression — a structured encoding of one or more SAE latents
+- **M3**: The MorphoRepr morpheme inventory — the self-describing set of primitives
 
-- **M0**: A specific token in a specific context, with its activation vector
-- **M1**: A SAE feature — a direction in activation space with a natural language description
-- **M2**: A MorphoRepr expression — a formal compositional encoding of one or more SAE features
-- **M3**: The MorphoRepr morpheme inventory — the self-describing set of primitives that defines all valid expressions
-
-The crucial property of M3 in MDE is self-reference: the MOF can describe itself using its own constructs. MorphoRepr approaches this property: its morphemes can, in principle, describe other morphemes. `sci-o` (knowledge-entity) can describe the morpheme `sci` itself; `ag-i` (to act as an agent) can describe the role of agentive morphemes. This self-referential capacity is not merely a formal curiosity — it is what allows MorphoRepr to scale to new feature types without requiring external extension mechanisms.
+This analogy is illustrative. SAE latents are not "models" in the MDE sense; MorphoRepr does not have the formal semantics of MOF. The analogy motivates the self-referential structure of the morpheme inventory (morphemes can, in principle, describe other morphemes) but does not constitute a formal proof of any property.
 
 ---
 
@@ -231,54 +228,72 @@ The crucial property of M3 in MDE is self-reference: the MOF can describe itself
 
 ### 4.1 Motivation for an Agentic Approach
 
-The induction of a MorphoRepr lexicon from SAE features is a task that is simultaneously too repetitive for manual execution and too semantically nuanced for a deterministic algorithm. Encoding 500 features requires consistent application of formal rules (amenable to automation) combined with semantic judgment about which morphemes best capture each feature's meaning (requiring LLM-level reasoning). This combination is precisely the operational niche of agentic AI systems.
-
-Three structural properties make this task particularly well-suited to an agentic pipeline:
-
-**Measurable convergence criteria.** The coverage rate — the fraction of features receiving a MorphoRepr encoding with confidence ≥ 0.6 — is a real number that the pipeline can compute autonomously and use to decide whether to iterate, extend the lexicon, or terminate.
-
-**Iterative refinement structure.** The lexicon induction process is naturally iterative: initial morphemes will fail to cover some features, which reveals gaps that motivate new morphemes, which in turn enable new encodings. This feedback loop is easily automated.
-
-**Separation of concerns between agents.** Different phases of the pipeline require qualitatively different capabilities: retrieval and ranking (Phase 1), clustering and abstraction (Phase 2), formal encoding (Phase 3), causal reasoning (Phase 4), and synthesis (Phase 5). Assigning these to specialized agents allows each to be optimized independently.
+The induction of a MorphoRepr lexicon from SAE features requires both consistent application of formal rules (amenable to automation) and semantic judgment about morpheme fit (requiring LLM-level reasoning). This combination motivates a multi-agent pipeline.
 
 ### 4.2 Pipeline Architecture
 
-The pipeline consists of five phases, each implemented as a set of specialized LLM agents orchestrated by a stateful controller. Full prompt templates for each agent are provided in Appendix B.
+The pipeline consists of five phases. Full prompt templates for each agent are provided in Appendix B.
 
 #### Phase 1: SAE Feature Extraction
 
-**Objective**: Construct a corpus of 500 annotated SAE features with activation examples.
+**Objective**: Construct a stratified corpus of SAE features with activation examples.
 
-**Data sources**:
-- Public SAEs for Claude 3 Sonnet, accessible via the Neuronpedia API (neuronpedia.org), with 16k to 1M features depending on the target layer
-- SAE-Bench (EleutherAI), a standardized benchmark with labeled features
-- `sae_lens`, an open-source Python library providing unified access to SAEs across multiple models
+**Data sources**: Public SAEs for Claude 3 Sonnet via the Neuronpedia API; SAE-Bench (EleutherAI); `sae_lens`.
 
-The *Loader agent* queries the Neuronpedia API for each target layer, retrieving for each feature its index, its 20 highest-activating examples (with activation scores), its existing interpretability score from Anthropic's autointerpretability pipeline, and its activation frequency on a reference corpus. The *Ranker agent* filters to the top-500 features by a composite score weighting frequency (50%) and existing interpretability score (50%). Features with interpretability score below 0.7 are excluded to ensure the corpus contains features with clear semantic identity. Results are stored in a *Feature store* (SQLite database) supporting the encoding and evaluation phases.
+The *Loader agent* retrieves for each feature its index, its 20 highest-activating examples, its existing interpretability score, and its activation frequency. The *Ranker agent* constructs **three evaluation splits** to avoid selection bias toward easy-to-interpret features:
+
+- **Easy set** (n=200): features with interpretability score ≥ 0.7, high frequency
+- **Random set** (n=200): features sampled uniformly without score filtering
+- **Hard set** (n=100): features with interpretability score < 0.5, or context-dependent, or domain-specific (code, math, named entities, multilingual)
+
+This stratification ensures that coverage statistics reflect the full distribution of SAE latents, not only the most interpretable subset.
 
 #### Phase 2: MorphoRepr Lexicon Induction
 
-**Objective**: Identify, through empirical analysis of the feature corpus, a minimal set of morphemes that covers the semantic space of the top-500 features.
+**Objective**: Identify a minimal morpheme set covering the semantic space of the feature corpus.
 
-The *Cluster agent* embeds the natural language descriptions of all 500 features using nomic-embed-text and applies k-means clustering with k ≈ 20, where each cluster represents a candidate morpheme family. The *Label agent* receives each cluster and proposes a morpheme — either from the predefined domain root vocabulary or as a new free root — along with a formal definition, scope statement, and coverage examples (see Appendix B.1 for the full prompt). The *Consistency agent* validates the proposed lexicon against three criteria: non-redundancy (cosine similarity between morpheme representations < 0.7), coverage (each feature can receive at least one morpheme), and composability (morphemes concatenate without ambiguity per the grammar of Appendix A). Failures trigger a feedback loop to the Label agent, running for a maximum of 5 iterations.
+The *Cluster agent* embeds natural language descriptions using nomic-embed-text and applies k-means clustering (k ≈ 20). The *Label agent* proposes morphemes per cluster. The *Consistency agent* validates against three criteria: non-redundancy (cosine similarity < 0.7), coverage, and composability. Failures trigger a feedback loop (max 5 iterations).
+
+**Lexicon governance**: free roots must be registered in a versioned lexicon. A free root may not collide with any existing prefix, infix, or suffix token. The lexicon records for each free root: its string, its formal definition, its scope statement, its inducing feature cluster, and its version timestamp.
 
 #### Phase 3: Feature Encoding and Coverage Measurement
 
-**Objective**: Encode each of the 500 features as a MorphoRepr expression and compute coverage statistics.
+**Objective**: Encode each feature and compute stratified coverage statistics.
 
-The *Encoder agent* processes each feature individually, producing a weighted MorphoRepr expression or an `UNCOVERED` response with justification (see Appendix B.2 for the full prompt). The *Scorer agent* computes three aggregate metrics: (a) **raw coverage rate** — percentage of features with encoder confidence ≥ 0.6; (b) **fidelity score** — a second LLM judge evaluates whether the MorphoRepr expression correctly predicts high-activating examples, following the simulation scoring of Paulo et al. (2024); (c) **UNCOVERED rate** — percentage of features the encoder cannot express with confidence ≥ 0.5, analyzed by feature type. The *Fallback agent* clusters UNCOVERED features, proposes new morpheme candidates, and resubmits them to the Phase 2 validation loop.
+The *Encoder agent* produces a weighted MorphoRepr expression or an UNCOVERED response with justification. The *Scorer agent* computes:
+
+(a) **Raw coverage rate** per split (easy / random / hard): percentage of features with encoder confidence ≥ 0.6;
+(b) **Fidelity score**: a second LLM judge evaluates whether the MorphoRepr expression correctly predicts high-activating examples (Paulo et al., 2024 simulation scoring protocol);
+(c) **UNCOVERED rate** per split, categorized by feature type (named entity, pragmatic, domain-specific, context-dependent).
+
+**Baseline comparisons** (run in parallel for the same feature corpus):
+- Natural language labels (LLM-generated, unconstrained)
+- Semantic Regexes (Boggust et al., 2025 protocol)
+- Controlled keyword tags (single noun phrase, no composition)
+- Random valid MorphoRepr expressions (grammatically correct, semantically arbitrary) — serves as a lower bound
+
+Comparison metrics: description length (tokens), run-to-run consistency (ROUGE-L between two independent annotation runs), fidelity score, UNCOVERED rate.
 
 #### Phase 4: Causal Validation via Activation Steering
 
-**Objective**: Verify that MorphoRepr morphemes are causally valid predictors of model behavior under feature intervention, not merely descriptive labels.
+**Objective**: Verify that MorphoRepr expressions are causally predictive of model behavior under feature intervention, not merely plausible paraphrases.
 
-For each encoded feature, the *Steer agent* amplifies the target SAE feature by +5 activation units (standard steering magnitude from Templeton et al., 2024) on 20 neutral probe sentences, records the output shift, and generates a causal prediction based solely on the MorphoRepr expression (see Appendix B.3). A *judge LLM* evaluates whether the observed shift matches the prediction. The *Causal agent* computes a causal alignment score per morpheme and an aggregate causal validity score across all morphemes.
+**Protocol**: For each encoded feature, the *Steer agent* amplifies the target SAE latent by +5 activation units (Anthropic, 2024) on 20 neutral probe sentences. A *Causal prediction agent* generates a behavioral prediction based **solely on the MorphoRepr expression** (not the natural language description). A *Judge agent* evaluates whether the observed output shift matches the prediction.
 
-**Go/no-go threshold**: An aggregate causal validity score exceeding 0.65 (65%) constitutes validation of MorphoRepr as a causally predictive system.
+**Causal validity metric**: for each feature, a binary score (prediction correct / incorrect). Aggregate causal validity score = fraction of features with correct predictions. The same protocol is run for natural language labels and Semantic Regexes to enable direct comparison.
+
+**Methodological safeguard against circularity**: the judge agent receives only the MorphoRepr expression and the observed output shift. It does not receive the natural language description of the feature. This constraint is enforced by the pipeline controller. It ensures that the validation measures the predictive power of the MorphoRepr encoding itself, not the predictive power of the underlying natural language description that generated it.
+
+**Additional validity controls**:
+- Ablation: random valid MorphoRepr labels as negative control
+- Feature split: causal validation run separately for easy / random / hard sets
+- Inter-run consistency: two independent annotation runs, Cohen's κ on binary causal validity scores
+
+**Go/no-go threshold**: aggregate causal validity ≥ 0.65 across the random set (not the easy set) constitutes the publication threshold.
 
 #### Phase 5: Synthesis and Reporting
 
-The *Report agent* generates structured coverage statistics, fidelity distributions, and causal validity scores per morpheme. The *Gap analyst* classifies UNCOVERED features into categories (named-entity features, pragmatic features, technical domain-specific features) and quantifies the fraction of the feature space outside MorphoRepr's expressible scope by design. The *Paper draft agent* produces a structured results summary for inclusion in a conference submission.
+The *Report agent* generates stratified coverage and causal validity statistics. The *Gap analyst* classifies UNCOVERED features. The *Paper draft agent* produces a structured results summary.
 
 ### 4.3 Technical Stack
 
@@ -291,74 +306,54 @@ Embeddings:       nomic-embed-text (feature description clustering)
 Clustering:       scikit-learn k-means + UMAP (visualization)
 Storage:          SQLite (feature corpus) + JSON (versioned lexicon)
 Evaluation:       SAE-Bench (EleutherAI) as external benchmark
+Baselines:        natural language labels, Semantic Regexes,
+                  controlled keyword tags, random MorphoRepr labels
 Checkpoints:      Full pipeline state snapshot after each phase
 ```
 
 ### 4.4 Success Criteria
 
-| Metric | Minimum threshold | Publication threshold |
-|--------|------------------|-----------------------|
-| Raw coverage (confidence ≥ 0.6) | 55% | 70% |
-| Causal validity | 50% | 65% |
-| Final lexicon size | < 250 morphemes | < 150 morphemes |
-| UNCOVERED features analyzed | — | ≥ 80% categorized |
+| Metric | Minimum threshold | Publication threshold | Baseline target |
+|--------|------------------|-----------------------|-----------------|
+| Raw coverage — easy set (conf ≥ 0.6) | 65% | 80% | — |
+| Raw coverage — random set (conf ≥ 0.6) | 45% | 60% | — |
+| Raw coverage — hard set (conf ≥ 0.6) | 20% | 35% | — |
+| Causal validity — random set | 50% | 65% | > NL labels |
+| Fidelity score | 0.55 | 0.70 | > NL labels |
+| Run-to-run consistency (ROUGE-L) | 0.60 | 0.75 | > NL labels |
+| Final lexicon size | < 250 morphemes | < 150 morphemes | — |
+| UNCOVERED features categorized | — | ≥ 80% | — |
 
-A raw coverage below 40% does not invalidate the contribution. It would instead constitute a negative result with analytic value: it would precisely quantify which properties of SAE features resist morphological encoding, and why — a contribution to the theory of feature structure in LLMs.
+A raw coverage below 40% on the random set does not invalidate the contribution; it would constitute a precisely characterized negative result quantifying which properties of SAE latents resist morphological encoding — itself a contribution to the theory of feature structure in LLMs.
 
 ---
 
-## 5. Toward MorphoRepr-Guided Memory Consolidation
+## 5. Research Agenda
 
-### 5.1 Inverting the Pipeline: From Reading to Writing
+*This section sketches longer-term research directions contingent on the experimental results of Section 4. It does not constitute a contribution of the present paper.*
 
-The feasibility study described in Section 4 treats MorphoRepr as a *read-only* system: it projects activation states into human-readable expressions without modifying the model. Should this projection prove valid, a natural next step is to invert the pipeline — to use MorphoRepr expressions as a structured interface for *writing* new knowledge into model weights.
+Should MorphoRepr prove causally valid as an annotation system, two natural extensions arise.
 
-This inversion would proceed as follows:
+**MorphoRepr-Edit.** MorphoRepr expressions could serve as a structured address space for model editing (ROME/MEMIT-style), transforming the expensive case-by-case localization procedure into a structured lookup in a semantically typed space. This is highly speculative: MorphoRepr addresses SAE latents, not weight matrices directly, and the mapping from latents to editable weight directions is non-trivial. ROME and MEMIT operate on factual associations in MLP layers; a generalization to arbitrary morpho-semantic content would require substantial new work.
 
-1. A piece of knowledge is expressed in Esperanto, exploiting Esperanto's agglutinative structure to produce a morphologically parsed input.
-2. The Esperanto text is automatically converted to a MorphoRepr expression via the morphological parser developed in the feasibility study.
-3. The MorphoRepr expression is mapped to a set of target SAE features via the lexicon.
-4. The target features are localized to specific weight matrices using the causal maps established in Phase 4.
-5. A targeted weight update (ROME/MEMIT-style) is applied to encode the new knowledge.
+**MorphoRepr-Memory.** A hybrid memory architecture inspired by Complementary Learning Systems theory could combine an external vector store (episodic buffer, indexed by MorphoRepr embeddings) with selective parametric consolidation via LoRA. The appeal is a human-auditable retrieval interface: queries in MorphoRepr syntax are interpretable by human operators. The key open problem is that reading from activation spaces reduces to linear projection (well-understood), while writing into a nonlinear dynamical system in a compositional and interference-free manner is not guaranteed by current theory.
 
-The key contribution of MorphoRepr to this pipeline would be in step 4: transforming the expensive, empirical, case-by-case localization procedure of ROME into a structured lookup in a semantically typed address space.
-
-### 5.2 The Hybrid Memory Architecture
-
-We propose a two-stage memory architecture inspired by the Complementary Learning Systems theory:
-
-**Stage 1: Episodic buffer (hippocampal analogue)**. An external vector store — in the tradition of Karpathy's graph-based knowledge systems using tools such as Obsidian — holds Esperanto-encoded content indexed by MorphoRepr embeddings. This store functions as a fast, high-capacity episodic memory: new information can be added instantly, retrieved by semantic similarity, and updated without risk of interference with other stored memories. The use of MorphoRepr embeddings rather than raw LLM embeddings as the indexing mechanism provides human-auditable retrieval: a query in MorphoRepr syntax can be interpreted by a human operator.
-
-**Stage 2: Parametric consolidation (neocortical analogue)**. A consolidation mechanism selectively transfers frequently accessed or causally important knowledge from the episodic buffer into model weights via low-rank adaptation (LoRA). The consolidation criterion is dual: frequency (knowledge accessed more than a threshold number of times) and causal validation (knowledge whose MorphoRepr encoding has been confirmed as causally predictive in Phase 4). This mirrors the selectivity of hippocampal-to-neocortical consolidation during sleep, which prioritizes emotionally salient and repeatedly activated memories.
-
-The two-stage design addresses the central tension in current model editing: the speed of episodic acquisition (accommodated by Stage 1) and the stability requirements of parametric memory (managed by Stage 2's selective consolidation).
-
-### 5.3 Open Problems and Limitations
-
-**Compositional writability.** Reading from activation spaces reduces to linear projection, which is well-understood. Writing in a compositional and interference-free manner into a nonlinear dynamical system is not guaranteed by any current theory. The weight matrices of a transformer are not an addressable memory; a local modification has global effects that are difficult to predict. MorphoRepr does not solve this problem; it reframes it as a structured search problem over a semantically typed address space, which is a necessary precondition for any principled solution.
-
-**Catastrophic forgetting.** Current sequential model editing approaches degrade model performance after a few thousand edits. This is not a limitation specific to MorphoRepr; it is a fundamental property of the current transformer architecture. MorphoRepr's contribution is to make the editing process more principled, not to resolve the architectural limitation.
-
-**Episodic specificity.** MorphoRepr operates at the level of semantic and morpho-syntactic features. Episodic memories — "I spoke with person X on date Y about topic Z" — require a level of contextual specificity that Esperanto morphology cannot capture directly. Stage 1 (the episodic buffer) can store such memories as structured records; Stage 2 (parametric consolidation) can only encode their semantic content, not their episodic specificity.
-
-This memory consolidation direction is proposed here as a future research program contingent on the feasibility results of Section 4. It is included in this paper to situate MorphoRepr within the broader challenge of building LLMs with persistent, human-auditable, and morphologically structured long-term memory.
+These directions are proposed as a three-paper research program: the present paper (framework and protocol), a second paper (experimental results), and a third paper (editing or memory application).
 
 ---
 
 ## 6. Positioning Within the Current Literature
 
-MorphoRepr occupies a distinctive position in the interpretability landscape, differentiated from the closest related works as follows:
-
-| Approach | Compositionality | Human readability | Coverage | Causal validity |
-|----------|-----------------|-------------------|----------|----------------|
-| Natural language labels (Bills et al., 2023) | None | High | High | Not assessed |
+| Approach | Compositionality | Human readability | Consistency | Causal validity |
+|----------|-----------------|-------------------|-------------|----------------|
+| Natural language labels (Bills et al., 2023) | None | High | Low | Not assessed |
 | Semantic Regexes (Boggust et al., 2025) | Logical | Moderate | High | Not assessed |
 | SAELing (Huang et al., 2025) | None | High | Moderate | Partial |
-| TCAV (Kim et al., 2018) | None | Moderate | Low | Partial |
-| **MorphoRepr (proposed)** | **Agglutinative** | **High** | **To be measured** | **Central criterion** |
+| TCAV (Kim et al., 2018) | None | Moderate | Moderate | Partial |
+| **MorphoRepr (proposed)** | **Agglutinative** | **High (hypothesis)** | **To be measured** | **Central criterion** |
 | First-order logic | Full | Low | High | High |
 
-The distinctive contribution of MorphoRepr relative to Semantic Regexes — the most direct competitor — is the agglutinative composition mechanism. Where Semantic Regexes express `feature #1204` as `¬token("not") | field("negation")`, MorphoRepr expresses it as `0.88·mal-o + 0.34·ne-a`. The second form is compact, phonetically pronounceable, and compositionally transparent in the same way that the Esperanto word `malfeliĉa` (*unhappy*) is transparently composed of `mal-` (opposite) + `feliĉ-` (happy) + `-a` (adjective suffix). This transparency is not merely aesthetic: it enables human operators to *construct* new feature descriptions from scratch by composing morphemes, rather than merely *reading* descriptions generated by an LLM.
+The key open question distinguishing MorphoRepr from Semantic Regexes is whether agglutinative morphological composition produces a measurable advantage in annotation consistency and causal predictive power. MorphoRepr expressions are compact and pronounceable (`0.88·mal-o + 0.34·ne-a`); Semantic Regex expressions are logically explicit (`¬token("not") | field("negation")`). Both properties have potential advantages; the evaluation protocol in Section 4 is designed to measure them empirically rather than assume them.
 
 ---
 
@@ -366,7 +361,7 @@ The distinctive contribution of MorphoRepr relative to Semantic Regexes — the 
 
 ### 7.1 What MorphoRepr Can and Cannot Express
 
-MorphoRepr is explicitly designed as a lossy projection. It captures:
+MorphoRepr captures:
 - Morpho-syntactic properties (tense, aspect, negation, agentivity, syntactic role)
 - Broad semantic domain (knowledge, affect, action, space, social relation, data)
 - Activation strength (via coefficients)
@@ -374,32 +369,30 @@ MorphoRepr is explicitly designed as a lossy projection. It captures:
 It does not capture:
 - Highly specific named-entity features ("features about the Eiffel Tower")
 - Deeply pragmatic features (irony, register, cultural connotation)
-- Features whose meaning is defined by a specific textual context rather than a semantic property
+- Features defined by a specific textual context rather than a semantic property
 - Inter-feature relationships (how two features interact causally)
 
-The estimated coverage of 55–70% (pending empirical validation) means that roughly 30–45% of the top-500 SAE features lie outside MorphoRepr's expressible scope by design. This is not a failure — it is a quantification of the boundary between the morpho-semantic and the contextual-pragmatic in LLM feature space, which is itself a scientifically interesting result.
+The estimated coverage of 45–65% on the random set (pending empirical validation) means that a substantial fraction of SAE latents lie outside MorphoRepr's expressible scope by design. This is not a failure — it is a quantification of the boundary between morpho-semantic and contextual-pragmatic content in LLM feature space.
 
 ### 7.2 Why Esperanto and Not Another Agglutinative Language
 
-Turkish, Finnish, Hungarian, Swahili, and Japanese are all agglutinative or polysynthetic languages with well-studied morphological systems. Esperanto is chosen for four reasons specific to this application:
+The choice of Esperanto as a structural model (not as the language itself) rests on four properties relevant to a controlled annotation language: fully regular morphology (no exceptions), finite affix inventory (~40 affixes with formally defined meanings), Latin-script notation (embeddable in standard text formats), and human learnability (the morphological system can be learned from a small reference table in hours). Turkish, Finnish, Hungarian, and Japanese are also agglutinative, but their natural-language irregularities would complicate formal specification.
 
-1. **Designed regularity**: Esperanto's morphology is fully regular by construction, with no exceptions. Natural agglutinative languages have irregular forms, suppletive morphemes, and phonological alternations that would complicate formal specification.
+We do not claim Esperanto morphology is intrinsically optimal for this application. The evaluation protocol will test whether a morphologically inspired notation reduces annotation variance and improves causal predictive power compared to alternatives. If it does not, a different notation system should be used.
 
-2. **Finite affix inventory**: Esperanto has approximately 40 affixes with formally defined meanings. This finite inventory is precisely the kind of controlled vocabulary needed for MorphoRepr's morpheme set.
+### 7.3 Lexicon Governance and Versioning
 
-3. **Latin-script notation**: Esperanto uses a Latin-derived alphabet, making MorphoRepr expressions directly embeddable in standard text formats, code, and data schemas without encoding issues.
-
-4. **Human learnability**: The Esperanto morphological system can be learned in hours. This means MorphoRepr expressions will be interpretable, without training, by any researcher familiar with a small reference table of morphemes.
+The extensibility of MorphoRepr via free roots creates a tension: a closed small lexicon limits coverage; an unconstrained extensible lexicon risks becoming an ad hoc controlled vocabulary with no stable formal properties. The resolution adopted here is a **versioned governed lexicon**: free roots are registered with formal definitions, scope statements, and version timestamps. Each experimental run records which lexicon version was used. Semantic conflicts, synonymy, and deprecations are tracked explicitly. This governance structure is necessary for reproducibility and for comparing results across pipeline runs.
 
 ---
 
 ## 8. Conclusion
 
-We have proposed MorphoRepr, a morphologically-structured meta-language for annotating SAE features in LLMs, and described a five-phase agentic pipeline for conducting a feasibility study of its coverage and causal validity. This paper presents the formal framework and evaluation protocol; experimental results will be reported in a subsequent version upon completion of the pipeline run.
+We have proposed MorphoRepr, a morphologically structured controlled language for annotating SAE features in LLMs, and described a five-phase agentic pipeline and complete evaluation protocol for assessing its coverage, consistency, fidelity, and causal validity against natural language labels and Semantic Regexes.
 
-The theoretical case for MorphoRepr rests on three convergent observations: the documented compositionality of LLM activation spaces (the Linear Representation Hypothesis), the structural analogy between agglutinative morphology and the additive composition of SAE features, and the demonstrated insufficiency of natural language labels for formal interpretability tasks. Whether this theoretical case translates into a practically useful system is an empirical question that the pipeline described in Section 4 is designed to answer.
+This paper is a position paper and evaluation protocol; it makes no experimental claims. The theoretical case for MorphoRepr rests on three observations: the documented compositionality of LLM activation spaces (Linear Representation Hypothesis), the structural analogy between agglutinative morphology and the additive composition of SAE latents, and the demonstrated insufficiency of natural language labels for systematic interpretability tasks. Whether this theoretical case translates into a practically useful system is an empirical question that the pipeline described in Section 4 is designed to answer.
 
-Beyond interpretability, the prospective memory consolidation architecture sketched in Section 5 suggests that MorphoRepr, if validated, could serve as a principled interface between the fast episodic memory of external vector stores and the slow parametric memory of transformer weights — a computational implementation of the Complementary Learning Systems theory at the scale of production LLMs.
+The central open question is not whether MorphoRepr is better than natural language — it is almost certainly better on consistency and worse on coverage. The central question is whether it is better than Semantic Regexes, and specifically whether agglutinative composition provides a measurable advantage in causal predictive power that justifies the additional cognitive cost of learning a new notation.
 
 The code for the agentic pipeline, the MorphoRepr lexicon specification, and all experimental results will be made available at: `https://github.com/michaellaunay/morphorepr`.
 
@@ -416,6 +409,10 @@ Bricken, T., Templeton, A., Batson, J., Chen, B., Jermyn, A., Conerly, T., Turne
 Cunningham, H., Ewart, A., Sherburn, L., Tuck, R., & Sharkey, L. (2023). *Sparse Autoencoders Find Highly Interpretable Features in Language Models*. arXiv:2309.08600.
 
 Elhage, N., Hume, T., Olsson, C., Schiefer, N., Henighan, T., Kravec, S., Hatfield-Dodds, Z., Lasenby, R., Drain, D., Chen, C., Grosse, R., McCandlish, S., Kaplan, J., Amodei, D., Wattenberg, M., & Olah, C. (2022). *Toy Models of Superposition*. Transformer Circuits Thread.
+
+Anthropic. (2024). *Extracting Interpretable Features from Claude 3 Sonnet*. Transformer Circuits Thread. https://transformer-circuits.pub/2024/scaling-monosemanticity/
+
+Gao, L., la Tour, T. D., Tillman, H., Goh, G., Troll, R., Radford, A., Sutskever, I., Leike, J., & Wu, J. (2024). *Scaling and evaluating sparse autoencoders*. arXiv:2406.04093.
 
 Huang, J., et al. (2025). *Sparse Auto-Encoder Interprets Linguistic Features in Large Language Models*. arXiv:2502.20344.
 
@@ -437,8 +434,6 @@ Park, K., Hernandez-Garcia, A., Sharma, S., Gontier, N., & Schölkopf, B. (2023)
 
 Paulo, G., Mallen, A., Juang, C., & Belrose, N. (2024). *Automatically Interpreting Millions of Features in Large Language Models*. arXiv:2410.13928.
 
-Templeton, A., Conerly, T., Marcus, J., Lindsey, J., Bricken, T., Chen, B., Pearce, A., Citro, C., Ameisen, E., Jones, A., Cunningham, H., Turner, N., McDougall, C., MacDiarmid, M., Freeman, C. D., Sumers, T. R., Rees, E., Batson, J., Jermyn, A., … Henighan, T. (2024). *Scaling and evaluating sparse autoencoders*. Anthropic Research.
-
 Zamenhof, L. L. (1887). *Unua Libro* [International Language]. Warsaw.
 
 ---
@@ -450,28 +445,38 @@ Zamenhof, L. L. (1887). *Unua Libro* [International Language]. Warsaw.
 ```
 expression    ::= term ('+' term)*
 term          ::= coefficient '·' word
-coefficient   ::= [0-9]'.'[0-9][0-9]
+coefficient   ::= '0.' digit-nonzero digit
+                | '0.' digit digit-nonzero
+                | '1.00'
+(* coefficient ∈ [0.01, 1.00]; constraint is semantic, not purely syntactic *)
+(* digit ::= '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9' *)
+(* digit-nonzero ::= '1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9' *)
+
 word          ::= (prefix)* root (infix)* suffix
 prefix        ::= 'mal-' | 'ne-' | 'pli-' | 'plej-' | 'duon-'
 root          ::= root-predefined | root-free
 root-predefined ::= 'sci' | 'emo' | 'ag' | 'dir' | 'soc'
                   | 'dat' | 'tem' | 'lok' | 'mal' | 'ne'
 root-free     ::= [a-z]{2,5}
-                  (* pipeline-induced roots, registered in lexicon *)
+                  (* pipeline-induced roots, registered in lexicon;
+                     must not collide with any prefix, infix, or suffix token *)
 infix         ::= '-ad-' | '-int-' | '-it-' | '-ist-' | '-ant-'
                 | '-at-' | '-ig-' | '-iĝ-'
-suffix        ::= '-o' | '-a' | '-e' | '-i' | '-as' | '-is'
-                | '-os' | '-us' | '-u'
+suffix        ::= syntactic-suffix | tense-suffix
+syntactic-suffix ::= '-o' | '-a' | '-e' | '-i'
+tense-suffix     ::= '-as' | '-is' | '-os' | '-us' | '-u'
 ```
 
 ### A.2 Composition Rules
 
 1. A word must contain exactly one root.
-2. Prefixes precede the root; infixes follow the root; the suffix is final.
+2. Prefixes precede the root; infixes follow the root and precede the suffix; the suffix is final.
 3. Multiple prefixes are allowed and compose left-to-right: `mal-ne-X` = "not-absent-X" ≠ `ne-mal-X` = "non-opposite-X".
-4. Coefficients must be in [0.01, 1.00]; a coefficient of 0.00 indicates an absent feature and must not appear in expressions.
+4. Coefficients must be in [0.01, 1.00]. A coefficient of 0.00 indicates an absent feature and must not appear in expressions.
 5. Terms in an expression are ordered by descending coefficient.
-6. Free roots (`root-free`) must be registered in the versioned lexicon before use; unregistered free roots are syntactically valid but semantically undefined.
+6. Free roots must be registered in the versioned lexicon before use; unregistered free roots are syntactically valid but semantically undefined.
+7. A free root must not be identical to any prefix token (`mal`, `ne`, `pli`, `plej`, `duon`), any infix token (`ad`, `int`, `it`, `ist`, `ant`, `at`, `ig`, `iĝ`), or any suffix token (`o`, `a`, `e`, `i`, `as`, `is`, `os`, `us`, `u`).
+8. A word ending in a tense suffix (`-as`, `-is`, `-os`, `-us`, `-u`) is interpreted as verbal. A word ending in a syntactic suffix (`-o`, `-a`, `-e`, `-i`) is interpreted as nominal, adjectival, adverbial, or infinitival respectively. These two suffix families are mutually exclusive within a single word.
 
 ---
 
@@ -497,8 +502,10 @@ You will receive a cluster of semantically related SAE features.
 If the cluster is covered by a predefined domain root (sci, emo, ag,
 dir, soc, dat, tem, lok), propose that root. Otherwise, propose a
 new free root of 2-5 lowercase characters that does not conflict
-with the existing lexicon. In both cases, provide a formal definition,
-scope statement, and coverage examples.
+with the existing lexicon (reserved tokens: mal, ne, pli, plej, duon,
+ad, int, it, ist, ant, at, ig, o, a, e, i, as, is, os, us, u).
+In both cases, provide a formal definition, scope statement,
+and coverage examples.
 ```
 
 ### B.2 Encoder Agent System Prompt
@@ -510,12 +517,15 @@ MorphoRepr is an agglutinative formal language where:
 - Each term has the form: coefficient · morpheme-chain
 - Coefficients are in [0.01, 1.00] (two decimal places)
 - Morpheme chains follow the grammar: (prefix)* root (infix)* suffix
+- Suffix is either a syntactic suffix (-o, -a, -e, -i) or a tense
+  suffix (-as, -is, -os, -us, -u), not both
 - Domain roots (sci, emo, ag, dir, soc, dat, tem, lok) and
   registered free roots are the only valid roots
 - An expression contains 1-4 terms, ordered by descending coefficient
+- State your encoding rationale for each term
 - If you cannot encode a feature with confidence ≥ 0.50 using the
   available lexicon, respond UNCOVERED and explain what semantic
-  content the lexicon cannot express.
+  content the lexicon cannot express
 
 Be precise about confidence. Overconfident encodings that fail
 causal validation are more harmful than honest UNCOVERED responses.
@@ -541,7 +551,39 @@ expressions alone are sufficient for causal prediction.
 
 ---
 
-*Version 0.23 — June 2026*
+## Appendix C: Changes from Version 0.23
+
+The following changes were made in response to reviewer feedback on the v0.23 preprint:
+
+**Title and framing.** The title has been changed from "A Morphologically-Structured Meta-Language for Human-Readable Projection of LLM Internal Representations" to "A Morphologically Structured Controlled Language for SAE Feature Description in LLMs — A Position Paper and Evaluation Protocol". The subtitle makes the paper's status explicit. The framing has been shifted from "projection of internal representations" to "annotation of SAE latents", which more accurately describes the contribution.
+
+**Abstract and Introduction.** The claim that "no natural language provides sufficient expressive power" has been replaced by a more precise claim: natural language descriptions are insufficiently structured for systematic evaluation, cross-feature comparison, and causal prediction. A note on paper status has been added to Section 1.2.
+
+**Scope disclaimer.** A paragraph has been added to Section 2.1 and a sentence to Section 1 clarifying that MorphoRepr encodes human hypotheses about SAE latent semantics, not ground-truth representations of model internals, and that SAE latents are not equivalent to human concepts.
+
+**BNF correction.** The coefficient production has been corrected. The previous rule `[0-9]'.'[0-9][0-9]` admitted values outside [0.01, 1.00] (e.g., 9.99). The corrected rule explicitly constrains coefficients to [0.01, 1.00].
+
+**Suffix disambiguation.** A new composition rule (Rule 8) and an explanatory paragraph have been added to clarify the distinction between syntactic role suffixes (`-o`, `-a`, `-e`, `-i`) and tense suffixes (`-as`, `-is`, `-os`, `-us`). The BNF now distinguishes `syntactic-suffix` and `tense-suffix` as separate productions.
+
+**Free root collision rule.** A new composition rule (Rule 7) prohibits free roots from colliding with reserved morpheme tokens. The label agent prompt has been updated accordingly.
+
+**Stratified evaluation splits.** The evaluation corpus has been restructured into three splits (easy / random / hard) to avoid selection bias toward highly interpretable features. Success criteria have been updated accordingly.
+
+**Baseline comparisons.** The evaluation protocol now explicitly includes natural language labels, Semantic Regexes, controlled keyword tags, and random valid MorphoRepr labels as baselines. The positioning table has been updated.
+
+**Circularity safeguard.** A methodological safeguard has been added to Phase 4: the judge agent receives only the MorphoRepr expression and the observed output shift, not the natural language description, to ensure that causal validity measures the predictive power of the encoding itself.
+
+**Reference correction.** The reference to "Templeton et al. (2024), Scaling and evaluating sparse autoencoders" has been corrected. The paper on scaling SAE training is Gao et al. (2024), arXiv:2406.04093. The Anthropic paper on Claude 3 Sonnet features is now cited as Anthropic (2024), *Extracting Interpretable Features from Claude 3 Sonnet*, Transformer Circuits Thread.
+
+**Section 3.4 (MDE analogy).** An editorial note has been added making explicit that this section is optional and does not constitute a scientific justification.
+
+**Section 5 (formerly Section 5 on memory consolidation).** Reduced to a one-section research agenda. The full memory architecture discussion has been removed from the main contribution and repositioned as longer-term speculative directions, explicitly contingent on experimental results.
+
+**Example encodings.** Each example now includes a "limitation acknowledged" or "encoding rationale" note to make the pedagogical status of the examples explicit.
+
+---
+
+*Version 0.24 — June 2026*
 *Michaël Launay — michaellaunay@logikascium.com*
 *Logikascium EURL — https://www.logikascium.com*
 *GitHub: https://github.com/michaellaunay/morphorepr*
