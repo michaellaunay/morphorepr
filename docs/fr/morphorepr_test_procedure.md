@@ -1,12 +1,14 @@
-# MorphoRepr — Procédure de test complète (v4)
+# MorphoRepr — Procédure de test complète (v5)
 ## Infrastructure expérimentale robuste pour une évaluation reproductible
+
+*Version 5 — Juin 2026. Cohérente avec l'article v0.27. Les modifications par rapport à la v4 sont listées en Section 13 (changelog).*
 
 ---
 
 ## Principes directeurs
 
-**Règle 1 — Séparation des rôles**
-Claude Code sert au développement, au débogage et à la supervision uniquement. Le run expérimental final est piloté exclusivement par `python orchestrator.py --config configs/run_v1.yaml` — déterministe, sans modification de code, sans intervention agentique non tracée pendant l'exécution.
+**Règle 1 — Séparation des rôles ; run gelé et auditable**
+Claude Code sert au développement, au débogage et à la supervision uniquement. Le run expérimental final est piloté exclusivement par `python orchestrator.py --config configs/run_v1.yaml`. Le run est **gelé et auditable** plutôt que strictement déterministe : le code, la configuration, les prompts, le corpus et le lexique sont figés et vérifiés par empreinte (hash), et toutes les sorties brutes des agents sont archivées. En revanche les sorties des appels LLM sont **stochastiques** (et le sont nécessairement pour les deux runs de cohérence d'annotation) ; le run est donc *ré-analysable* à partir des sorties archivées, sans être *régénérable* à l'identique. Aucune modification de code ni intervention agentique non tracée pendant l'exécution.
 
 **Règle 2 — Trois niveaux d'exécution**
 
@@ -24,8 +26,14 @@ Commit Git fixé et vérifié, config hashée, prompts hashés (SHA256 complet),
 **Règle 4 — Pas de reprise après modification de code**
 Si le code est modifié après un échec de phase, créer un nouveau run_id avec un nouveau commit Git. Ne jamais reprendre un run avec un commit différent de celui enregistré à l'initialisation.
 
-**Règle 5 — Repli sur modèle proxy**
-Si l'accès direct aux activations de Claude 3 Sonnet n'est pas disponible, la phase de validation causale doit être exécutée sur un modèle proxy open-weight disposant de SAEs publics (ex. GPT-2, Pythia-6.9B ou Mistral-7B via `sae_lens`). Dans ce cas : (a) toutes les conclusions causales sont limitées au modèle proxy ; (b) les exemples Claude 3 Sonnet / Neuronpedia restent illustratifs uniquement ; (c) cela doit être déclaré explicitement dans la section Méthodes du papier.
+**Règle 5 — Modèle de validation : proxy open-weight par défaut**
+L'accès expérimental complet aux activations d'un modèle de production (steering contrôlé avec génération avant/après) n'étant pas garanti par les interfaces publiques, la validation causale s'exécute **par défaut sur un modèle proxy open-weight disposant de SAEs publics** (ex. GPT-2, Pythia ou Mistral via `sae_lens`). Dans ce cas : (a) le pipeline entier (Phases 1–5) opère sur les SAEs du proxy ; (b) toutes les conclusions causales sont limitées au modèle proxy ; (c) les exemples Claude 3 Sonnet / Neuronpedia restent illustratifs uniquement ; (d) cela doit être déclaré explicitement dans la section Méthodes du papier. Si un accès direct aux activations d'un modèle de production est obtenu, mettre `proxy_model.enabled=false` et fournir les chemins d'accès correspondants.
+
+**Règle 6 — Steering normalisé par feature, à la couche du feature**
+La magnitude de steering primaire est **normalisée par feature** (un multiple du 99e percentile d'activation du feature, colonne `activation_p99`), ce qui la rend comparable entre features et couches ; la magnitude absolue historique (+5) est conservée comme condition secondaire. Le steering cible la **couche propre du feature** (colonne `layer`), non une couche globale. Les instances poussées hors-distribution (`ood_flag=1`) sont **exclues de la métrique primaire** et rapportées séparément.
+
+**Règle 7 — Comparaison sur ensemble de features partagé**
+Le tête-à-tête de validité causale (MorphoRepr vs étiquettes NL vs Semantic Regexes) est calculé **sur le même ensemble de features** — l'intersection des features couverts par MorphoRepr (confiance ≥ 0,5) — afin d'éviter que MorphoRepr ne soit avantagé en n'étant évalué que sur ses features les plus clairs. Les baselines sont aussi rapportées sur le set complet, pour transparence. Le score de validité causale primaire est le **macro-F1** sur les directions {increase, decrease, no_change}, et le critère go/no-go est une **différence appariée** dont l'IC bootstrap à 95 % exclut 0.
 
 ---
 
@@ -109,10 +117,11 @@ morphorepr-pipeline/
 # configs/run_v1.yaml
 
 run_id_prefix: "morphorepr_v1"
-description: "Full frozen run MorphoRepr v0.26 — 500 features"
+description: "Full frozen run MorphoRepr v0.27 — 500 features"
 
 # Reproductibilité
 git_commit: "FILL_BEFORE_LAUNCH"    # vérifié contre le HEAD Git réel à l'init
+allow_unpinned_commit: false        # run gelé : le commit DOIT être épinglé (cf. orchestrator)
 lexicon_version: "v1.0"
 corpus_frozen: true
 
@@ -140,38 +149,59 @@ prompts:
   fidelity_judge: "prompts/fidelity_judge_v1.txt"
   causal_judge:   "prompts/causal_judge_v1.txt"
 
-# Splits du corpus
+# Splits du corpus (DISJOINTS : random échantillonné dans le complément de easy ∪ hard)
 splits:
   easy:   {n: 200, min_interp_score: 0.7}
-  random: {n: 200, filter: "uniform"}
+  random: {n: 200, filter: "uniform", disjoint_from_others: true}
   hard:   {n: 100, max_interp_score: 0.5}
 primary_split: "random"              # tous les seuils go/no-go évalués ici
 
+# Clustering (Phase 2) — graines fixées pour la reproductibilité de l'induction du lexique
+clustering:
+  k: 20
+  kmeans_random_state: 42
+  umap_random_state: 42
+
 # Steering SAE
 steering:
-  magnitudes: [0, 2, 5, 10]
-  primary_magnitude: 5
+  # Magnitude PRIMAIRE normalisée par feature : multiple du 99e percentile (activation_p99).
+  # La magnitude absolue +5 (Anthropic, 2024) est conservée comme condition SECONDAIRE/historique.
+  magnitude_mode: "p99_relative"     # "p99_relative" (primaire) | "absolute" (secondaire)
+  primary_magnitude_rel: 1.0         # 1.0 × activation_p99 du feature
+  dose_response_rel: [0.0, 0.5, 1.0, 2.0]   # courbe dose-réponse (multiples de p99)
+  legacy_absolute_magnitude: 5       # condition secondaire historique
   n_probe_sentences: 20
-  # Sous-échantillon pour la courbe dose-réponse (random.sample avec seed)
-  n_subsample_for_curve: 50
-  target_layer: "middle"             # "early"|"middle"|"late" — confirmer après pilot
+  n_subsample_for_curve: 50          # sous-échantillon seedé pour la dose-réponse
+  layer_mode: "per_feature"          # cible la couche propre du feature (colonne `layer`)
   intervention_space: "residual"     # "residual"|"sae_latent"
   token_position: "all"              # "all"|"last"|"content_only"
   # OOD basé sur activation_p99 de la table features (PAS la norme W_dec)
   ood_threshold: 3.0
+  exclude_ood_from_primary: true     # instances ood_flag=1 exclues de la métrique primaire
 
-# Repli sur modèle proxy (si activations Claude 3 Sonnet indisponibles)
+# Modèle de validation — proxy open-weight PAR DÉFAUT (Règle 5).
+# Mettre enabled=false uniquement si un accès direct aux activations d'un modèle
+# de production est obtenu (fournir alors les chemins d'accès dans agents/steerer.py).
 proxy_model:
-  enabled: false                     # mettre true si Sonnet inaccessible
+  enabled: true
   name: "EleutherAI/pythia-6.9b"
   sae_release: "pythia-6.9b-res-jb"
 
-# Baselines
+# Baselines d'ANNOTATION (comparées sur ensemble de features partagé — Règle 7)
 baselines:
   - nl_labels
-  - semantic_regex
+  - semantic_regex        # implémentation OFFICIELLE de Boggust et al. (apple/ml-semantic-regex)
   - keyword_tags
   - morphorepr_shuffled
+
+# Contrôles d'INTERVENTION (Phase 4) — au-delà du contrôle d'annotation mélangé
+intervention_controls:
+  random_feature_same_layer: true    # feature SAE aléatoire de même couche
+  random_direction_same_norm: true   # direction aléatoire de même norme
+  matched_activation_freq: true      # feature à fréquence d'activation comparable
+  negative_steering: true            # -magnitude lorsque sémantiquement pertinent
+  prompt_only: true                  # étiquette dans le prompt, sans steering
+  diffmean_reft: true                # baselines supervisées DiffMean / ReFT (cf. AxBench)
 
 # Contrôle mélangé
 shuffle_control:
@@ -179,8 +209,11 @@ shuffle_control:
   within_split: true
   max_term_diff: 1
   preserve_coefficients: true
-  # Shuffles évalués par classifieurs uniquement (pas le juge LLM) pour borner le coût
+  # Le gros des shuffles est scoré par classifieurs (pas le juge LLM) pour borner le coût ;
+  # mais une FRACTION passe par le MÊME chemin predictor+juge que le traitement, afin de
+  # calibrer la comparabilité (sinon le "null" n'est pas comparable à la métrique principale).
   use_llm_judge: false
+  llm_judge_calibration_fraction: 0.2
   # Évalués sur le random split uniquement ; 10 répétitions agrégées avant IC
   evaluation_split: "random"
 
@@ -196,18 +229,36 @@ thresholds:
   coverage_random_min: 0.45
   coverage_hard_min: 0.20
   fidelity_auc_min: 0.60
-  causal_validity_floor: 0.50
+  causal_validity_floor: 0.50        # plancher de macro-F1 ; le critère principal est une
+                                     # DIFFÉRENCE APPARIÉE vs baselines dont l'IC 95% exclut 0
   root_jaccard_min: 0.60
   human_audit_jaccard_min: 0.60
   free_root_rate_max: 5.0
 
-# Seed de reproductibilité (sélection du sous-échantillon et contrôle mélangé)
+# Méthodologie statistique
+stats:
+  causal_score: "macro_f1"           # macro-F1 sur {increase,decrease,no_change}, props robustes,
+                                     # calculé par feature puis moyenné
+  comparison: "paired"               # différence appariée par feature (mêmes features)
+  bootstrap_resamples: 10000
+  stratify_by_split: true
+  multiple_comparison_primary: "holm"            # Holm-Bonferroni (comparaisons principales)
+  multiple_comparison_exploratory: "benjamini_hochberg"  # FDR (analyses exploratoires)
+  prediction_failure_policy: "zero_for_property"  # échec de prédiction => score nul pour la propriété
+
+# Batch API (Anthropic) — la plupart des batchs finissent < 1h, accessibles à la fin
+# ou après 24h ; ils expirent à 24h. 2h était trop court (échec artificiel possible).
+batch:
+  poll_interval_seconds: 60
+  max_wait_seconds: 86400
+
+# Seed de reproductibilité (sélection du sous-échantillon, contrôle mélangé, clustering)
 seed: 42
 ```
 
 ---
 
-## 3. Schéma SQLite complet (v4)
+## 3. Schéma SQLite complet (v5)
 
 ```sql
 -- db/schema.sql  —  Version 4, ne jamais modifier après le full run
@@ -311,7 +362,10 @@ CREATE TABLE IF NOT EXISTS agent_outputs (
     batch_id        TEXT REFERENCES batches(batch_id),
     cost_usd        REAL,
     coefficient_type TEXT DEFAULT 'confidence',
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    -- Empêche les doublons lors d'une reprise partielle ou d'une double exécution.
+    -- Combinée à INSERT OR IGNORE dans save_agent_output(), rend la persistance idempotente.
+    UNIQUE(run_id, feature_index, agent_name, run_number)
 );
 
 -- ─────────────────────────────────────────────
@@ -366,6 +420,8 @@ CREATE TABLE IF NOT EXISTS shuffle_controls (
     annotation      TEXT NOT NULL,
     causal_score    REAL,
     causal_outcome  TEXT,
+    -- 'classifier' (gros des shuffles) | 'llm_judge' (fraction de calibration, Règle/Section 4)
+    scored_by       TEXT DEFAULT 'classifier',
     created_at      TEXT NOT NULL,
     UNIQUE(run_id, feature_index, shuffle_number)
 );
@@ -379,6 +435,9 @@ CREATE TABLE IF NOT EXISTS steering_results (
     run_id              TEXT NOT NULL REFERENCES runs(run_id),
     feature_index       INTEGER NOT NULL,
     magnitude           REAL NOT NULL,
+    -- magnitude_rel : multiple de activation_p99 appliqué (mode primaire "p99_relative") ;
+    -- NULL en mode "absolute". magnitude reste la valeur absolue effectivement appliquée.
+    magnitude_rel       REAL,
     probe_id            INTEGER NOT NULL,
     text_before         TEXT NOT NULL,
     text_after          TEXT,
@@ -460,17 +519,23 @@ CREATE INDEX IF NOT EXISTS idx_batches_run ON batches(run_id, phase, agent_name,
 ```python
 # utils/morphorepr_parser.py
 """
-Parseur MorphoRepr déterministe.
+Parseur MorphoRepr.
 Source unique de vérité pour TOUTES les métriques morphémiques.
 
-Algorithme positionnel en 5 étapes pour chaque mot :
-  1. Retirer le coefficient (avant '·')
-  2. Lire les préfixes uniquement en tête du mot
-  3. Lire le suffixe uniquement en queue du mot
-  4. Détecter les infixes entre tirets dans le corps restant
-  5. Extraire la racine comme partie restante
+Algorithme par SEGMENTATION sur '-' (corrige les bugs de la v4 : non-détection
+des infixes, et échec sur mal-o / ne-a). Pour chaque mot :
+  1. Retirer le coefficient (avant '·'), fait dans parse_expression().
+  2. Découper le mot sur '-' en segments.
+  3. Le dernier segment est le suffixe (doit être un token de suffixe connu).
+  4. Lire les préfixes en tête, SANS jamais consommer le dernier segment
+     disponible (qui devient la racine). => mal-o donne racine 'mal' ;
+     mal-emo-a donne préfixe 'mal' + racine 'emo'.
+  5. Le premier segment non-préfixe est la racine ; les segments restants
+     sont les infixes.
 
-Aucun str.replace() global — parsing strictement positionnel partout.
+Note : un parseur strictement positionnel par sous-chaînes (v4) échouait car,
+après retrait du suffixe '-o', le corps 'soc-ant' ne contient plus le motif
+'-ant-' (le tiret final est parti avec le suffixe). La segmentation évite cela.
 """
 from dataclasses import dataclass, field
 from typing import Optional
@@ -492,16 +557,23 @@ PREDEFINED_ROOTS = frozenset(
 #   - "mal" et "ne" sont valides comme racines PRÉDÉFINIES (ex. "mal-o", "ne-a")
 #   - Ils ne peuvent PAS être ré-enregistrés comme nouvelles racines LIBRES par le pipeline
 RESERVED_TOKENS = frozenset({
-    "mal", "ne", "pli", "plej", "duon",           # tokens de préfixe
-    "ad", "int", "it", "ist", "ant", "at", "ig",  # tokens d'infixe
-    "o", "a", "e", "i", "as", "is", "os", "us", "u"  # tokens de suffixe
+    "mal", "ne", "pli", "plej", "duon",                 # tokens de préfixe
+    "ad", "int", "it", "ist", "ant", "at", "ig", "iĝ",  # tokens d'infixe (iĝ inclus)
+    "o", "a", "e", "i", "as", "is", "os", "us", "u"      # tokens de suffixe
 })
+
+# Jeux de tokens SANS tiret, utilisés par la segmentation (parse_word).
+PREFIX_TOKENS      = frozenset(p.strip("-") for p in PREFIXES)
+INFIX_TOKENS       = frozenset(ix.strip("-") for ix in INFIXES)
+TENSE_SUFFIX_TOK   = frozenset(s.strip("-") for s in TENSE_SUFFIXES)
+SYNT_SUFFIX_TOK    = frozenset(s.strip("-") for s in SYNTACTIC_SUFFIXES)
+SUFFIX_TOKENS      = TENSE_SUFFIX_TOK | SYNT_SUFFIX_TOK
 
 
 @dataclass
 class ParsedTerm:
     coefficient: float
-    coefficient_type: str   # "confidence" | "activation"
+    coefficient_type: str = "confidence"   # "confidence" | "activation"
     prefixes: list[str] = field(default_factory=list)
     root: str = ""
     infixes: list[str] = field(default_factory=list)
@@ -550,64 +622,65 @@ class ParsedExpression:
         return [t.coefficient for t in self.terms]
 
 
-def parse_word(word: str) -> ParsedTerm:
-    """Parse positionnel déterministe d'un seul mot MorphoRepr."""
-    term = ParsedTerm(coefficient=0.0, raw_word=word)
-    remaining = word.strip()
+def parse_word(word: str, known_free_roots: Optional[set] = None) -> ParsedTerm:
+    """Parse un seul mot MorphoRepr par SEGMENTATION sur '-'.
 
-    # Étape 2 : lire les préfixes en tête (positionnel)
-    while True:
-        matched_prefix = None
-        for p in PREFIXES:
-            if remaining.startswith(p):
-                matched_prefix = p
-                break
-        if matched_prefix:
-            after = remaining[len(matched_prefix):]
-            if after:
-                term.prefixes.append(matched_prefix.rstrip("-"))
-                remaining = after
-            else:
-                term.parse_error = f"Préfixe terminal sans racine : {word}"
-                return term
-        else:
-            break
+    `known_free_roots` (optionnel) : racines libres enregistrées. Une racine non
+    prédéfinie et non enregistrée reste SYNTAXIQUEMENT valide (règle 6) ; parse_word
+    ne l'invalide pas (l'éligibilité à l'enregistrement est vérifiée séparément par
+    can_register_new_free_root)."""
+    known_free_roots = known_free_roots or set()
+    term = ParsedTerm(coefficient=0.0, coefficient_type="confidence", raw_word=word)
 
-    # Étape 3 : lire le suffixe en queue (correspondance la plus longue en premier)
-    matched_suffix = None
-    for s in sorted(ALL_SUFFIXES, key=len, reverse=True):
-        if remaining.endswith(s):
-            matched_suffix = s
-            remaining = remaining[:-len(s)]
-            break
-
-    if not matched_suffix:
-        term.parse_error = f"Aucun suffixe reconnu : {word}"
+    segs = [s for s in word.strip().split("-") if s]
+    if not segs:
+        term.parse_error = f"Mot vide : {word}"
         return term
 
-    term.suffix = matched_suffix
-    term.suffix_type = ("tense" if matched_suffix in TENSE_SUFFIXES
-                        else "syntactic")
+    # Étape 3 : suffixe = dernier segment
+    if segs[-1] not in SUFFIX_TOKENS:
+        term.parse_error = f"Aucun suffixe reconnu : {word}"
+        return term
+    term.suffix = "-" + segs[-1]
+    term.suffix_type = "tense" if segs[-1] in TENSE_SUFFIX_TOK else "syntactic"
 
-    # Étape 4 : détecter les infixes dans le corps restant
-    for ix in INFIXES:
-        if ix in remaining:
-            parts = remaining.split(ix, 1)
-            before_infix = parts[0]
-            after_infix  = parts[1] if len(parts) > 1 else ""
-            if before_infix:
-                term.infixes.append(ix.strip("-"))
-                remaining = before_infix + ("-" + after_infix if after_infix else "")
-
-    # Retirer les tirets résiduels du découpage d'infixes
-    remaining = remaining.strip("-").strip()
-
-    # Étape 5 : la racine est ce qui reste
-    if not remaining:
+    body = segs[:-1]
+    if not body:
         term.parse_error = f"Aucune racine extraite : {word}"
         return term
 
-    term.root = remaining
+    # Étape 4 : préfixes en tête, SANS jamais consommer le dernier segment (la racine).
+    # => mal-o : racine 'mal' ; mal-emo-a : préfixe 'mal' + racine 'emo' ; mal-ne-o :
+    #    préfixe 'mal' + racine 'ne'.
+    i = 0
+    while i < len(body) - 1 and body[i] in PREFIX_TOKENS:
+        term.prefixes.append(body[i])
+        i += 1
+
+    # Étape 5a : racine = premier segment non-préfixe restant
+    root = body[i]
+    i += 1
+    if root in PREDEFINED_ROOTS:
+        pass                                   # racine prédéfinie (inclut mal, ne)
+    elif root in RESERVED_TOKENS:
+        term.parse_error = f"Token réservé '{root}' utilisé comme racine : {word}"
+        return term
+    elif root in known_free_roots:
+        pass                                   # racine libre enregistrée
+    elif re.match(r'^[a-z]{2,5}$', root):
+        pass                                   # racine libre bien formée (enreg. vérifié ailleurs)
+    else:
+        term.parse_error = f"Racine mal formée '{root}' : {word}"
+        return term
+    term.root = root
+
+    # Étape 5b : segments restants = infixes
+    for seg in body[i:]:
+        if seg not in INFIX_TOKENS:
+            term.parse_error = f"Segment inattendu '{seg}' (infixe inconnu/mal placé) : {word}"
+            return term
+        term.infixes.append(seg)
+
     return term
 
 
@@ -651,25 +724,36 @@ def parse_expression(expr: str,
     return result
 
 
-def validate_free_root(root: str) -> Optional[str]:
-    """
-    Valide une racine libre candidate.
-    Retourne None si valide, message d'erreur sinon.
-
-    Note sur mal et ne :
-      - Les deux sont dans PREDEFINED_ROOTS : valides comme racines prédéfinies
-        (ex. "mal-o", "ne-a")
-      - Les deux sont dans RESERVED_TOKENS : ne peuvent PAS être ré-enregistrés
-        comme nouvelles racines libres par le pipeline
-      Cette double appartenance est intentionnelle — voir commentaire sur
-      RESERVED_TOKENS ci-dessus.
-    """
+def is_valid_root(root: str, known_free_roots: Optional[set] = None) -> bool:
+    """Vrai si `root` est une racine VALIDE en l'état : racine prédéfinie, ou racine
+    libre bien formée ([a-z]{2,5}) non réservée (enregistrée ou non). Sert au parsing."""
+    known_free_roots = known_free_roots or set()
     if root in PREDEFINED_ROOTS:
-        return None  # les racines prédéfinies sont toujours valides
+        return True
     if root in RESERVED_TOKENS:
-        return f"La racine '{root}' est un token réservé"
+        return False
+    if root in known_free_roots:
+        return True
+    return bool(re.match(r'^[a-z]{2,5}$', root))
+
+
+def can_register_new_free_root(root: str,
+                               known_free_roots: Optional[set] = None) -> Optional[str]:
+    """Valide l'éligibilité d'une racine candidate à être ENREGISTRÉE comme NOUVELLE
+    racine libre. Retourne None si éligible, un message d'erreur sinon.
+
+    Distinct de is_valid_root : 'mal' et 'ne' sont des racines VALIDES (prédéfinies)
+    mais ne peuvent PAS être ré-enregistrées comme nouvelles racines libres ; de même
+    une racine déjà enregistrée ne peut pas l'être deux fois."""
+    known_free_roots = known_free_roots or set()
+    if root in PREDEFINED_ROOTS:
+        return f"'{root}' est déjà une racine prédéfinie (pas de ré-enregistrement)"
+    if root in RESERVED_TOKENS:
+        return f"'{root}' est un token réservé (préfixe/infixe/suffixe)"
+    if root in known_free_roots:
+        return f"'{root}' est déjà enregistrée comme racine libre"
     if not re.match(r'^[a-z]{2,5}$', root):
-        return f"La racine '{root}' ne correspond pas à [a-z]{{2,5}}"
+        return f"'{root}' ne correspond pas à [a-z]{{2,5}}"
     return None
 ```
 
@@ -772,10 +856,11 @@ def save_agent_output(run_id: str,
                       batch_id: Optional[str],
                       cost_usd: float,
                       coefficient_type: str = "confidence"):
-    """INSERT nommé — résistant aux évolutions de schéma."""
+    """INSERT idempotent (OR IGNORE) — compatible avec la contrainte UNIQUE
+    (run_id, feature_index, agent_name, run_number) et la reprise après crash."""
     with get_conn() as conn:
         conn.execute("""
-            INSERT INTO agent_outputs (
+            INSERT OR IGNORE INTO agent_outputs (
                 output_id, run_id, feature_index, agent_name, run_number,
                 output_json, raw_output, status, error_msg,
                 tokens_input, tokens_output, batch_id, cost_usd,
@@ -783,7 +868,7 @@ def save_agent_output(run_id: str,
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(uuid4()), run_id, feature_index, agent_name, run_number,
-            json.dumps(output_json) if output_json else None,
+            json.dumps(output_json) if output_json is not None else None,
             raw_output, status, error_msg,
             tokens_input, tokens_output, batch_id, cost_usd,
             coefficient_type,
@@ -876,7 +961,17 @@ from utils.db_utils import (register_batch, mark_batch_consumed,
                              get_unconsumed_batch, log_api_cost, check_budget)
 
 logger = logging.getLogger(__name__)
-client = anthropic.Anthropic()
+
+# Init paresseuse : ne pas instancier le client (ni exiger ANTHROPIC_API_KEY) à l'import,
+# afin que les tests unitaires sans clé puissent importer ce module.
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic()
+    return _client
 
 COST_PER_MTK = {
     "claude-sonnet-4-6":         {"input": 3.0,  "output": 15.0},
@@ -929,18 +1024,29 @@ def submit_and_poll_batch(requests: list[dict],
                           run_number: int,
                           model: str,
                           config: dict,
-                          poll_interval: int = 30,
-                          max_wait_seconds: int = 7200) -> list[dict]:
+                          persist_fn: Optional[Callable] = None,
+                          poll_interval: Optional[int] = None,
+                          max_wait_seconds: Optional[int] = None) -> list[dict]:
     """
     Soumet un batch (ou récupère un batch non consommé existant) et retourne les résultats.
     Config passée explicitement partout.
+
+    Anti double-facturation (crash-safety) : si `persist_fn` est fourni, il est appelé
+    avec les résultats AVANT de logger le coût et de marquer le batch consommé. Ainsi,
+    en cas de crash après réception mais avant persistance, le batch reste 'submitted' ;
+    à la reprise, get_unconsumed_batch le récupère et on RE-POLL le même batch (pas de
+    nouvelle soumission, donc pas de double dépense) puis on re-persiste (idempotent via
+    INSERT OR IGNORE). Les appelants (agents) DOIVENT passer persist_fn.
     """
+    batch_cfg        = config.get("batch", {})
+    poll_interval    = poll_interval    or batch_cfg.get("poll_interval_seconds", 60)
+    max_wait_seconds = max_wait_seconds or batch_cfg.get("max_wait_seconds", 86400)
     existing = get_unconsumed_batch(run_id, phase, agent_name, run_number)
     if existing:
         logger.info(f"Reprise du batch non consommé {existing}")
         batch_id = existing
     else:
-        batch = client.messages.batches.create(requests=requests)
+        batch = _get_client().messages.batches.create(requests=requests)
         batch_id = batch.id
         register_batch(batch_id, run_id, phase, agent_name,
                        run_number, len(requests))
@@ -948,7 +1054,7 @@ def submit_and_poll_batch(requests: list[dict],
 
     elapsed = 0
     while elapsed < max_wait_seconds:
-        status_obj = client.messages.batches.retrieve(batch_id)
+        status_obj = _get_client().messages.batches.retrieve(batch_id)
         if status_obj.processing_status == "ended":
             break
         elif status_obj.processing_status == "errored":
@@ -963,10 +1069,15 @@ def submit_and_poll_batch(requests: list[dict],
 
     results = []
     total_in, total_out = 0, 0
-    for result in client.messages.batches.results(batch_id):
+    for result in _get_client().messages.batches.results(batch_id):
         if result.result.type == "succeeded":
             msg  = result.result.message
-            raw  = msg.content[0].text if msg.content else ""
+            # Concaténer tous les blocs de type 'text' (défensif : un premier bloc
+            # non-textuel — p. ex. bloc de raisonnement/outil — ne casse pas le parsing).
+            raw  = "".join(
+                getattr(b, "text", "") for b in (msg.content or [])
+                if getattr(b, "type", "") == "text"
+            )
             tin  = msg.usage.input_tokens
             tout = msg.usage.output_tokens
             total_in  += tin
@@ -993,6 +1104,11 @@ def submit_and_poll_batch(requests: list[dict],
                 "tokens_input":  0,
                 "tokens_output": 0,
             })
+
+    # Persistance AVANT consommation/facturation : garantit qu'un crash entre réception
+    # et persistance laisse le batch récupérable sans re-soumission ni double dépense.
+    if persist_fn is not None:
+        persist_fn(results)
 
     cost       = compute_cost(model, total_in, total_out, is_batch=True)
     cumulative = log_api_cost(run_id, phase, agent_name, model,
@@ -1079,12 +1195,15 @@ def hash_corpus_canonical(db_path: str) -> str:
     de la table features font partie de la définition du corpus gelé.
     """
     conn = sqlite3.connect(db_path)
-    rows = conn.execute(
+    cur  = conn.execute(
         "SELECT * FROM features ORDER BY feature_index"
-    ).fetchall()
+    )
+    col_names = [d[0] for d in cur.description]   # en-tête : détecte un changement de schéma/ordre
+    rows = cur.fetchall()
     conn.close()
     buf    = io.StringIO()
     writer = csv.writer(buf)
+    writer.writerow(col_names)                    # ligne d'en-tête incluse dans le hash
     for row in rows:
         writer.writerow(row)
     return hashlib.sha256(buf.getvalue().encode()).hexdigest()
@@ -1142,7 +1261,11 @@ NEG_LEXICON = {
     "impossible","prevent","prevents","prevented","deny",
     "denies","denied","refuse","refuses","refused"
 }
-NEG_PREFIXES = ("un", "im", "in", "dis", "non", "ir", "il", "a")
+NEG_PREFIXES = ("un", "non", "dis", "mis")
+# v4 incluait ("un","im","in","dis","non","ir","il","a"). Retirés : "a" (about, after,
+# around, available…), "in"/"im"/"il"/"ir" (information, important, illustrate, irrigate…)
+# — faux positifs massifs. La détection morphologique de négation reste bruitée : c'est
+# la calibration (≥ 0,85) qui valide ce classifieur, matrice de confusion à l'appui.
 
 def count_negation_signals(text: str) -> float:
     doc    = nlp(text)
@@ -1196,15 +1319,20 @@ def get_pipe():
             "sentiment-analysis",
             model="cardiffnlp/twitter-roberta-base-sentiment-latest",
             truncation=True,
-            max_length=512
+            max_length=512,
+            top_k=None          # renvoie la distribution complète des labels (pas le seul top)
         )
     return _pipe
 
 def _neg_score(text: str) -> float:
-    result = get_pipe()(text)[0]
-    if result["label"].lower() in ("negative", "neg", "label_0"):
-        return result["score"]
-    return 1.0 - result["score"]
+    # Avec top_k=None, la pipeline renvoie la liste de tous les labels avec leur score.
+    # On lit DIRECTEMENT le score du label 'negative' (au lieu d'approximer 1 - top_score,
+    # qui surévaluait la négativité quand le top label était 'neutral').
+    scores = get_pipe()(text)[0]
+    for s in scores:
+        if s["label"].lower() in ("negative", "neg", "label_0"):
+            return float(s["score"])
+    return 0.0
 
 def measure(texts_before: list[str], texts_after: list[str]) -> dict:
     before    = sum(_neg_score(t) for t in texts_before) / len(texts_before)
@@ -1279,35 +1407,37 @@ if __name__ == "__main__":
 
 ---
 
-## 7. Agent de steering — spécification complète (v4)
+## 7. Agent de steering — spécification complète (v5)
 
 ```python
 # agents/steerer.py
 """
 Phase 4 — Steering d'activation SAE.
 
-Spécification de l'intervention :
+Spécification de l'intervention (v5) :
   - Espace :          résiduel (residual stream), après reconstruction SAE
-  - Couche :          configurée dans run_v1.yaml (steering.target_layer)
+  - Couche :          la COUCHE PROPRE DU FEATURE (colonne `layer`), pas une couche
+                      globale ; le SAE est chargé/caché par couche (Règle 6)
   - Position token :  configurable ("all" | "last" | "content_only")
-  - Amplitude :       normalisée (stockée en unités d'activation absolues dans la config)
+  - Amplitude :       PRIMAIRE normalisée par feature = primary_magnitude_rel × activation_p99
+                      (mode "p99_relative") ; +5 absolu conservé comme condition SECONDAIRE
+                      (mode "absolute", legacy_absolute_magnitude)
   - Contrôle :        magnitude=0 toujours exécuté comme ligne de base
-  - Dose-réponse :    [0, 2, 5, 10] sur sous-échantillon de 50 features (random split, seedé)
-  - Tous les features : magnitude primaire (5) + contrôle (0) uniquement
+  - Dose-réponse :    dose_response_rel (multiples de p99) sur sous-échantillon seedé
   - Détection OOD :   abs(activation_after) > activation_p99 * ood_threshold
                       où activation_p99 provient de la table features,
-                      PAS de la norme sae.W_dec[feature_index]
+                      PAS de la norme sae.W_dec[feature_index].
+                      Les instances ood_flag=1 sont exclues de la métrique primaire.
 
 Chemins d'accès au modèle (implémenter l'un d'eux avant le pilot run) :
   A. TransformerLens — pour les modèles proxy open-weight de style GPT
-  B. nnsight         — si accès direct à Claude disponible
+  B. nnsight         — si accès direct à un modèle de production disponible
   C. Poids locaux    — si modèle open-weight compatible SAE disponible
 
-Repli sur modèle proxy :
-  Si les activations de Claude 3 Sonnet sont indisponibles, mettre
-  proxy_model.enabled=true dans run_v1.yaml. Toutes les conclusions causales
-  seront alors limitées au modèle proxy. Les exemples Claude 3 Sonnet restent
-  illustratifs uniquement. À déclarer explicitement dans la section Méthodes.
+Modèle de validation (proxy par défaut, Règle 5) :
+  proxy_model.enabled=true par défaut. Le pipeline entier opère alors sur les SAEs
+  du proxy ; les exemples Claude 3 Sonnet restent illustratifs uniquement. À déclarer
+  explicitement dans la section Méthodes.
 """
 import json
 import logging
@@ -1319,25 +1449,32 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
+# Cache des SAE par couche (le corpus peut couvrir plusieurs couches).
+_SAE_CACHE: dict = {}
 
-def _get_sae(config: dict):
+
+def _get_sae(config: dict, layer):
     """
-    Charge le SAE pour le modèle et la couche cibles.
+    Charge (et cache) le SAE pour une COUCHE donnée — celle du feature.
     Implémenter l'un des trois chemins avant le pilot run.
     """
+    key = str(layer)
+    if key in _SAE_CACHE:
+        return _SAE_CACHE[key]
     proxy = config.get("proxy_model", {})
     if proxy.get("enabled"):
         from sae_lens import SAE
         sae, _, _ = SAE.from_pretrained(
             release=proxy["sae_release"],
-            sae_id=f"blocks.{config['steering']['target_layer']}.hook_resid_post"
+            sae_id=f"blocks.{layer}.hook_resid_post"
         )
+        _SAE_CACHE[key] = sae
         return sae
     raise NotImplementedError(
         "_get_sae() non implémenté.\n"
         "Pour débloquer :\n"
         "  A. Mettre proxy_model.enabled=true et utiliser un SAE public, OU\n"
-        "  B. Implémenter l'accès au SAE Claude 3 Sonnet via sae_lens/nnsight.\n"
+        "  B. Implémenter l'accès au SAE d'un modèle de production via sae_lens/nnsight.\n"
         "Valider en dev run avant le pilot run."
     )
 
@@ -1462,28 +1599,30 @@ def steer_feature(model,
 
 
 def run(run_id: str, config: dict):
-    """Phase 4 — Steering. Courbe dose-réponse sur sous-échantillon seedé."""
+    """Phase 4 — Steering. Magnitude normalisée par feature (× p99) ; dose-réponse seedée."""
     from utils.db_utils import get_conn
 
     logger.info("Phase 4 : Steering SAE")
 
     try:
-        model = _get_model(config)
-        sae   = _get_sae(config)
+        model = _get_model(config)        # le modèle est unique ; les SAE sont chargés par couche
     except NotImplementedError as e:
         logger.error(str(e))
         raise
 
-    probe_sentences = load_probe_sentences(config["steering"]["n_probe_sentences"])
-    primary_mag     = config["steering"]["primary_magnitude"]
-    all_magnitudes  = config["steering"]["magnitudes"]
-    n_subsample     = config["steering"]["n_subsample_for_curve"]
+    st              = config["steering"]
+    probe_sentences = load_probe_sentences(st["n_probe_sentences"])
+    mode            = st.get("magnitude_mode", "p99_relative")
+    primary_rel     = st.get("primary_magnitude_rel", 1.0)
+    dose_rel        = st.get("dose_response_rel", [0.0, 0.5, 1.0, 2.0])
+    legacy_abs      = st.get("legacy_absolute_magnitude", 5)
+    n_subsample     = st["n_subsample_for_curve"]
     seed            = config.get("seed", 42)
 
     with get_conn() as conn:
         rows = conn.execute("""
             SELECT ao.feature_index,
-                   f.split,
+                   f.split, f.layer,
                    f.activation_p99,
                    f.activation_mean,
                    f.activation_std,
@@ -1502,51 +1641,72 @@ def run(run_id: str, config: dict):
                            min(n_subsample, len(random_features)))
     subsample_indices = {f["feature_index"] for f in subsample}
 
-    # Sous-échantillon : courbe dose-réponse complète
-    _run_steering_batch(run_id, model, sae, subsample,
-                        all_magnitudes, probe_sentences, config)
+    # Sous-échantillon : courbe dose-réponse complète (multiples de p99, contrôle 0 inclus)
+    _run_steering_batch(run_id, model, subsample, dose_rel,
+                        probe_sentences, config, mode, legacy_abs)
 
-    # Features restants : magnitude primaire + contrôle uniquement
+    # Features restants : contrôle (0) + magnitude primaire uniquement
     remaining = [f for f in random_features
                  if f["feature_index"] not in subsample_indices]
-    _run_steering_batch(run_id, model, sae, remaining,
-                        [0, primary_mag], probe_sentences, config)
+    _run_steering_batch(run_id, model, remaining, [0.0, primary_rel],
+                        probe_sentences, config, mode, legacy_abs)
 
     logger.info("Phase 4 steering terminée")
 
 
-def _run_steering_batch(run_id: str, model, sae,
+def _run_steering_batch(run_id: str, model,
                         features: list[dict],
-                        magnitudes: list[float],
+                        rel_magnitudes: list[float],
                         probe_sentences: list[str],
-                        config: dict):
+                        config: dict,
+                        mode: str,
+                        legacy_abs: float):
     from utils.db_utils import get_conn
     with get_conn() as conn:
         for feat in features:
+            p99 = feat.get("activation_p99")
+            sae = _get_sae(config, feat.get("layer"))   # SAE de la COUCHE PROPRE du feature
             feature_stats = {
-                "activation_p99":  feat.get("activation_p99"),
+                "activation_p99":  p99,
                 "activation_mean": feat.get("activation_mean"),
                 "activation_std":  feat.get("activation_std"),
             }
-            for mag in magnitudes:
+            for rel in rel_magnitudes:
+                # Magnitude absolue effectivement appliquée :
+                #  - mode "p99_relative" (primaire) : rel × p99 du feature (0 pour le contrôle)
+                #  - mode "absolute" (secondaire/historique) : 0 si rel==0, sinon legacy_abs
+                if mode == "absolute":
+                    mag_abs, mag_rel = (0.0 if rel == 0.0 else float(legacy_abs)), None
+                else:
+                    mag_rel = rel
+                    if rel == 0.0:
+                        mag_abs = 0.0
+                    elif p99 is not None:
+                        mag_abs = rel * p99
+                    else:
+                        logger.warning(
+                            f"activation_p99 manquant pour feature "
+                            f"{feat['feature_index']} — magnitude relative {rel} ignorée"
+                        )
+                        continue
                 results = steer_feature(
                     model, sae, feat["feature_index"],
-                    mag, probe_sentences, feature_stats, config
+                    mag_abs, probe_sentences, feature_stats, config
                 )
                 for r in results:
                     conn.execute("""
                         INSERT INTO steering_results (
-                            result_id, run_id, feature_index, magnitude,
+                            result_id, run_id, feature_index, magnitude, magnitude_rel,
                             probe_id, text_before, text_after,
                             layer, token_position,
                             activation_before, activation_after,
                             ood_flag, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         str(uuid4()), run_id, feat["feature_index"],
-                        mag, r["probe_id"],
+                        mag_abs, mag_rel, r["probe_id"],
                         r["text_before"], r.get("text_after"),
-                        config["steering"].get("target_layer"),
+                        feat.get("layer"),
                         config["steering"].get("token_position"),
                         r.get("activation_before"),
                         r.get("activation_after"),
@@ -1568,14 +1728,15 @@ Contrôle MorphoRepr mélangé.
 - 10 répétitions par feature, seedées
 - shuffle_id déterministe : {run_id}_{feature_index}_{shuffle_number}
 - UNIQUE(run_id, feature_index, shuffle_number) empêche les doublons
-- Évalués par classifieurs uniquement (pas le juge LLM) pour borner le coût
-- Évalués sur le random split uniquement ; 10 répétitions agrégées avant IC
+- Le gros est évalué par classifieurs ; une fraction (shuffle_control.llm_judge_calibration_fraction)
+  passe par le même chemin predictor+juge que le traitement (colonne scored_by), pour calibrer
+- Évalués sur le random split uniquement ; répétitions agrégées avant IC
 """
 import logging
 import random
 from datetime import datetime
+from typing import Optional
 from utils.db_utils import get_conn
-from utils.config_utils import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -1584,9 +1745,13 @@ def _count_terms(expression: str) -> int:
     return len([t for t in expression.split("+") if "·" in t])
 
 
-def generate_shuffles(run_id: str, n_repeats: int = 10):
-    config   = load_config()
-    max_diff = config["shuffle_control"]["max_term_diff"]
+def generate_shuffles(run_id: str, config: dict, n_repeats: Optional[int] = None):
+    """Génère les annotations mélangées intra-split. Config passée explicitement
+    (la v4 appelait load_config() SANS argument, ce qui échouait : load_config exige
+    un chemin de config)."""
+    sc       = config["shuffle_control"]
+    n_repeats = n_repeats if n_repeats is not None else sc["n_repeats"]
+    max_diff = sc["max_term_diff"]
     seed     = config.get("seed", 42)
 
     with get_conn() as conn:
@@ -1688,8 +1853,32 @@ def test_db(tmp_path, monkeypatch):
 
 import pytest
 from utils.morphorepr_parser import (
-    parse_expression, parse_word, validate_free_root
+    parse_expression, parse_word,
+    is_valid_root, can_register_new_free_root
 )
+
+
+# Tous les exemples d'encodage du papier doivent parser correctement (cas mal/ne et infixes).
+@pytest.mark.parametrize("word,root,prefixes,infixes,suffix", [
+    ("ag-is",          "ag",   [],      [],      "-is"),
+    ("mal-o",          "mal",  [],      [],      "-o"),   # mal comme RACINE
+    ("ne-a",           "ne",   [],      [],      "-a"),   # ne comme RACINE
+    ("mal-emo-a",      "emo",  ["mal"], [],      "-a"),   # mal comme PRÉFIXE
+    ("ne-soc-a",       "soc",  ["ne"],  [],      "-a"),
+    ("soc-ant-o",      "soc",  [],      ["ant"], "-o"),
+    ("dat-ad-o",       "dat",  [],      ["ad"],  "-o"),
+    ("ag-int-a",       "ag",   [],      ["int"], "-a"),
+    ("pens-ad-is",     "pens", [],      ["ad"],  "-is"),
+    ("mal-far-int-e",  "far",  ["mal"], ["int"], "-e"),
+    ("mal-ne-o",       "ne",   ["mal"], [],      "-o"),   # préfixe mal + racine ne
+])
+def test_examples_from_paper(word, root, prefixes, infixes, suffix):
+    t = parse_word(word, known_free_roots={"far", "pens"})
+    assert t.is_valid, f"{word} devrait être valide : {t.parse_error}"
+    assert t.root == root
+    assert t.prefixes == prefixes
+    assert t.infixes == infixes
+    assert t.suffix == suffix
 
 
 class TestParseWord:
@@ -1736,26 +1925,40 @@ class TestParseExpression:
         assert not parse_expression("").is_valid
 
 
-class TestValidateFreeRoot:
-    def test_racine_libre_valide(self):
-        assert validate_free_root("pens") is None
-        assert validate_free_root("far") is None
+class TestRootValidation:
+    def test_racine_libre_bien_formee_valide(self):
+        assert is_valid_root("pens") and is_valid_root("far")
 
-    def test_token_reserve_rejete(self):
-        assert validate_free_root("is") is not None
-        assert validate_free_root("ad") is not None
+    def test_token_reserve_invalide_comme_racine(self):
+        assert not is_valid_root("is")
+        assert not is_valid_root("ad")
+        assert not is_valid_root("pli")   # préfixe réservé, pas une racine
 
-    def test_mal_ne_sont_predefinies_non_libres(self):
-        # mal et ne sont des racines PRÉDÉFINIES valides — validate_free_root
-        # retourne None pour les racines prédéfinies
-        assert validate_free_root("mal") is None
-        assert validate_free_root("ne")  is None
+    def test_mal_ne_valides_comme_racines_predefinies(self):
+        # mal et ne SONT des racines valides (prédéfinies)...
+        assert is_valid_root("mal") and is_valid_root("ne")
+
+    def test_mal_ne_non_enregistrables_comme_libres(self):
+        # ...mais ne peuvent PAS être ré-enregistrées comme NOUVELLES racines libres.
+        assert can_register_new_free_root("mal") is not None
+        assert can_register_new_free_root("ne")  is not None
+
+    def test_enregistrement_racine_libre_valide(self):
+        assert can_register_new_free_root("pens") is None
+
+    def test_enregistrement_token_reserve_rejete(self):
+        assert can_register_new_free_root("ad") is not None
+
+    def test_enregistrement_deja_enregistree_rejete(self):
+        assert can_register_new_free_root("far", known_free_roots={"far"}) is not None
 
     def test_trop_long_rejete(self):
-        assert validate_free_root("toolong") is not None
+        assert not is_valid_root("toolong")
+        assert can_register_new_free_root("toolong") is not None
 
     def test_majuscule_rejetee(self):
-        assert validate_free_root("Pens") is not None
+        assert not is_valid_root("Pens")
+        assert can_register_new_free_root("Pens") is not None
 
 
 # ─────────────────────────────────────────────
@@ -1841,6 +2044,11 @@ import sqlite3
 import pytest
 from baselines.shuffled import generate_shuffles
 
+# Config minimale pour les tests (generate_shuffles prend désormais la config en argument)
+_CFG = {"shuffle_control": {"n_repeats": 10, "max_term_diff": 1,
+                            "llm_judge_calibration_fraction": 0.2},
+        "seed": 42}
+
 
 def _setup_features_encodees(test_db, n=5, split="random"):
     conn = sqlite3.connect(test_db)
@@ -1884,7 +2092,7 @@ def _setup_features_encodees(test_db, n=5, split="random"):
 def test_shuffle_pas_auto_assigne(test_db):
     """Un feature ne doit jamais recevoir sa propre annotation."""
     _setup_features_encodees(test_db)
-    generate_shuffles("r1", n_repeats=3)
+    generate_shuffles("r1", _CFG, n_repeats=3)
     conn = sqlite3.connect(test_db)
     rows = conn.execute(
         "SELECT feature_index, source_feature FROM shuffle_controls"
@@ -1896,8 +2104,8 @@ def test_shuffle_pas_auto_assigne(test_db):
 def test_shuffle_contrainte_unicite(test_db):
     """La contrainte UNIQUE empêche les doublons logiques."""
     _setup_features_encodees(test_db)
-    generate_shuffles("r1", n_repeats=3)
-    generate_shuffles("r1", n_repeats=3)  # deuxième appel — pas de doublons
+    generate_shuffles("r1", _CFG, n_repeats=3)
+    generate_shuffles("r1", _CFG, n_repeats=3)  # deuxième appel — pas de doublons
     conn = sqlite3.connect(test_db)
     count = conn.execute(
         "SELECT COUNT(*) FROM shuffle_controls WHERE run_id='r1'"
@@ -1913,7 +2121,7 @@ def test_shuffle_contrainte_unicite(test_db):
 ```python
 # orchestrator.py
 """
-Orchestrateur MorphoRepr v4 — déterministe et auditable.
+Orchestrateur MorphoRepr v5 — run gelé et auditable.
 
 Usage :
     python orchestrator.py --config configs/run_v1.yaml
@@ -1974,7 +2182,17 @@ def initialize_run(config: dict, args) -> str:
     config_hash = hash_config(args.config)
 
     config_commit = config.get("git_commit", "FILL_BEFORE_LAUNCH")
-    if config_commit != "FILL_BEFORE_LAUNCH" and config_commit != git_commit:
+    if config_commit == "FILL_BEFORE_LAUNCH":
+        # Le run gelé (run_v1) DOIT épingler le commit. Seuls les dev runs peuvent
+        # lever cette exigence via allow_unpinned_commit: true.
+        if not config.get("allow_unpinned_commit", False):
+            raise RuntimeError(
+                "git_commit vaut encore 'FILL_BEFORE_LAUNCH'. Épingler le commit "
+                "(git_commit: <HEAD>) dans la config avant le run gelé, ou mettre "
+                "allow_unpinned_commit: true pour un dev run."
+            )
+        logger.warning("git_commit non épinglé (dev run) — provenance non gelée.")
+    elif config_commit != git_commit:
         raise RuntimeError(
             f"git_commit dans la config ({config_commit[:8]}) ne correspond pas "
             f"au HEAD courant ({git_commit[:8]}). "
@@ -2112,7 +2330,7 @@ PHASES = [
     ("p3_encode",      lambda rid, cfg: encoder.run(rid),           "Encodage (2 runs)"),
     ("p3_fidelity",    lambda rid, cfg: fidelity.run(rid),          "Fidélité AUC-ROC"),
     ("p3_baselines",   lambda rid, cfg: _run_baselines(rid),        "Baselines"),
-    ("p3_shuffle",     lambda rid, cfg: shuffled_baseline.generate_shuffles(rid),
+    ("p3_shuffle",     lambda rid, cfg: shuffled_baseline.generate_shuffles(rid, cfg),
                                                                      "Contrôle mélangé"),
     ("p4_steer",       lambda rid, cfg: steerer.run(rid, cfg),      "Steering"),
     ("p4_predict",     lambda rid, cfg: predictor.run(rid),         "Prédiction causale"),
@@ -2208,11 +2426,17 @@ from agents.steerer import _get_model, _get_sae
 from utils.config_utils import load_config
 cfg = load_config('configs/dev_run.yaml')
 _get_model(cfg)
-_get_sae(cfg)
+# _get_sae prend désormais une COUCHE (le SAE est chargé par couche, Règle 6).
+# Tester sur une couche représentative du proxy (ex. 6 pour pythia).
+layer = cfg.get('proxy_model', {}).get('validation_layer', 6)
+_get_sae(cfg, layer)
 print('Accès modèle OK')
 "
 # Si NotImplementedError : implémenter _get_model() / _get_sae() d'abord.
-# Si proxy : mettre proxy_model.enabled=true dans dev_run.yaml
+# proxy_model.enabled est true PAR DÉFAUT (Règle 5) ; pour un modèle de production,
+# mettre enabled=false et fournir les chemins d'accès dans agents/steerer.py.
+# Rappel : la reproductibilité du clustering (Phase 2) dépend de
+# clustering.kmeans_random_state / umap_random_state (graines fixées dans la config).
 
 # ── 5. Dev run (5 features — plomberie) ─────────────────────
 python orchestrator.py --config configs/dev_run.yaml --n-features 5
@@ -2280,3 +2504,48 @@ Claude Code intervient **uniquement en dehors du full frozen run** :
 - Intervenir dans l'orchestrateur en cours d'exécution
 - Interpréter des erreurs et proposer des correctifs automatiques
 - Relancer une phase échouée sans validation humaine explicite
+
+---
+
+## 13. Changelog v4 → v5
+
+Cette version aligne le protocole sur l'article v0.27 et corrige plusieurs bugs vérifiés par exécution.
+
+**Parseur (§4) — corrections critiques (vérifiées : 30/30 tests passent, dont les 11 exemples du papier).**
+- Réécriture de `parse_word` par **segmentation sur tirets** (au lieu du parsing positionnel par sous-chaînes). La v4 (a) ne détectait **jamais** les infixes dans la forme `racine-infixe-suffixe` (ex. `soc-ant-o` → racine `soc-ant`, infixes `[]`), car après retrait du suffixe `-o` le corps `soc-ant` ne contient plus le motif `-ant-` ; (b) échouait sur `mal-o` et `ne-a` (« Aucun suffixe reconnu ») à cause de la boucle de préfixes gloutonne ; (c) plantait dès l'instanciation de `ParsedTerm`, le champ `coefficient_type` n'ayant pas de valeur par défaut. Les trois sont corrigés (segmentation + désambiguïsation positionnelle de `mal`/`ne` + défaut `coefficient_type="confidence"`).
+- `RESERVED_TOKENS` complété avec `iĝ` ; ajout des jeux de tokens sans tiret (`PREFIX_TOKENS`, `INFIX_TOKENS`, `SUFFIX_TOKENS`) utilisés par la segmentation.
+- `validate_free_root` scindé en `is_valid_root` (racine valide en l'état) et `can_register_new_free_root` (éligibilité à l'enregistrement comme nouvelle racine libre). `mal`/`ne` sont des racines valides mais non ré-enregistrables.
+- Tests (§9) : import mis à jour ; ajout de `test_examples_from_paper` (11 cas paramétrés) ; `TestValidateFreeRoot` → `TestRootValidation`.
+
+**Validation causale et steering (§7, config) — alignement sur la méthodologie v0.27.**
+- Magnitude de steering **primaire normalisée par feature** (`magnitude_mode: p99_relative`, multiple de `activation_p99`) ; +5 absolu conservé en condition secondaire (`legacy_absolute_magnitude`). Courbe dose-réponse en multiples de p99 (`dose_response_rel`).
+- Steering à la **couche propre du feature** (`layer_mode: per_feature`) ; `_get_sae(config, layer)` charge et **cache le SAE par couche** (le corpus peut couvrir plusieurs couches).
+- **Exclusion des instances OOD** de la métrique primaire (`exclude_ood_from_primary`).
+- `run()` et `_run_steering_batch` réécrits en conséquence ; colonne `magnitude_rel` ajoutée à `steering_results` ; insertion de la couche réelle du feature.
+
+**Modèle de validation — proxy par défaut (Règle 5).**
+- `proxy_model.enabled: true` par défaut. Validation principale sur modèle proxy open-weight ; exemples Claude 3 Sonnet purement illustratifs.
+
+**Comparaison et statistiques (config, §4/§7).**
+- Comparaison de validité causale **sur ensemble de features partagé** (Règle 7) ; score primaire **macro-F1** sur {increase, decrease, no_change} ; critère go/no-go en **différence appariée** dont l'IC bootstrap à 95 % exclut 0.
+- Nouvelle section `stats` (bootstrap 10 000 stratifié, Holm-Bonferroni primaire, Benjamini-Hochberg exploratoire, politique d'échec de prédiction).
+- Nouvelle section `intervention_controls` (feature aléatoire même couche, direction même norme, fréquence comparable, steering négatif, prompt-only, DiffMean/ReFT).
+- Contrôle mélangé : fraction calibrée par le même chemin predictor+juge que le traitement (`llm_judge_calibration_fraction`, colonne `scored_by`).
+
+**Reproductibilité et splits (config).**
+- Splits **disjoints** (random échantillonné dans le complément de easy ∪ hard).
+- Section `clustering` avec graines fixées (`kmeans_random_state`, `umap_random_state`).
+- Section `batch` : `poll_interval_seconds: 60`, `max_wait_seconds: 86400` (2 h était trop court — risque de timeout artificiel avant l'expiration à 24 h des batchs).
+- `git_commit` placeholder : l'orchestrateur **bloque** le run gelé tant que le commit n'est pas épinglé (sauf `allow_unpinned_commit: true` pour un dev run).
+- Run requalifié « **gelé et auditable** » (et non « déterministe ») : sorties LLM stochastiques, mais code/config/prompts/corpus/lexique figés et vérifiés par empreinte, sorties archivées.
+
+**Robustesse logicielle (§5, §6).**
+- `db_utils.save_agent_output` : bug `if output_json` → `is not None` (un JSON `{}` ou `[]` n'est plus écrasé en NULL) ; **`INSERT OR IGNORE`** + contrainte `UNIQUE(run_id, feature_index, agent_name, run_number)` pour une persistance idempotente.
+- `api_utils` : client Anthropic **paresseux** (`_get_client()`, import sans clé) ; concaténation **de tous les blocs `text`** (au lieu de `content[0].text`) ; timeouts lus depuis la config ; **persistance avant consommation/facturation** (`persist_fn`) pour éliminer le risque de double-dépense à la reprise.
+- `prompt_utils.hash_corpus_canonical` : l'en-tête des colonnes est inclus dans le hash (détecte un changement de schéma/ordre).
+- `classifiers/negation.py` : préfixes de négation élagués (retrait de `"a"`, `"in"`, `"im"`, `"il"`, `"ir"` — faux positifs massifs).
+- `classifiers/valence.py` : pipeline en `top_k=None` ; `_neg_score` lit **directement** le score du label `negative` (au lieu d'approximer `1 - top_score`).
+- `baselines/shuffled.generate_shuffles(run_id, config, …)` : la config est **passée explicitement** (la v4 appelait `load_config()` sans argument, ce qui échouait) ; appel orchestrateur et tests mis à jour.
+
+**Divers.**
+- En-têtes de version v4 → v5 (titre, §3, §7, docstring orchestrateur).
