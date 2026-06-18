@@ -1,7 +1,7 @@
 # MorphoRepr : un langage contrôlé à structure morphologique pour la description des features SAE des LLMs
 ## Un article de positionnement et protocole d'évaluation
 
-**Title (English):** MorphoRepr: A Morphologically Structured Controlled Language for SAE Feature Description in LLMs — A Position Paper and Evaluation Protocol
+**Title (English):** MorphoRepr: A Controlled Morphological Language for Annotating SAE Features in LLMs — Position Paper and Evaluation Protocol
 
 **Michaël Launay**
 Logikascium (EURL), Fretin, France
@@ -10,19 +10,19 @@ michaellaunay@logikascium.com
 
 ---
 
-*Preprint — article de positionnement et protocole d'évaluation — soumis à arXiv cs.CL / HAL*
-*Version 0.27 — Juin 2026*
-*Remplace la version 0.26. Aucun résultat expérimental n'est revendiqué dans cette version ; les résultats seront rapportés à l'issue de l'exécution du pipeline.*
+*Preprint — article de positionnement et protocole d'évaluation — préparé pour soumission à arXiv cs.CL / HAL*
+*Version 0.28 — Juin 2026*
+*Remplace la version 0.27. Aucun résultat expérimental n'est revendiqué dans cette version ; les résultats seront rapportés à l'issue de l'exécution du pipeline.*
 
-**Note sur les versions** : ceci est la version longue HAL/arXiv. Une version courte workshop (cœur conceptuel, métriques principales, annexes résumées) est disponible sur demande et sera soumise séparément aux venues consacrées à l'interprétabilité et à l'IA centrée sur l'humain. La liste détaillée des modifications par rapport à la version 0.26 figure en Annexe C.
+**Note sur les versions** : ceci est la version longue HAL/arXiv. Une version courte workshop (cœur conceptuel, métriques principales, annexes résumées) est disponible sur demande et sera soumise séparément aux venues consacrées à l'interprétabilité et à l'IA centrée sur l'humain. La liste détaillée des modifications par rapport à la version 0.27 figure en Annexe C.
 
 ---
 
 ## Résumé
 
-Les descriptions en langue naturelle des features des autoencodeurs sparses (SAEs) dans les grands modèles de langage (LLMs) peuvent être utiles et souvent précises, mais elles sont insuffisamment structurées pour l'évaluation systématique, la comparaison inter-features, l'agrégation statistique et la prédiction causale. Elles sont vagues, inconsistantes entre runs d'annotation, et résistent à la manipulation formelle. Nous proposons **MorphoRepr**, un langage contrôlé à structure morphologique inspiré d'une morphologie agglutinante régulière de type espéranto, conçu comme couche d'annotation lisible par l'humain pour les features sparses produits par des SAEs entraînés sur les activations de LLMs. Chaque expression MorphoRepr encode des hypothèses humaines sur la sémantique d'un ou plusieurs latents SAE sous forme d'une chaîne compositionnelle de morphèmes à sémantique formellement définie, pondérés par des coefficients normalisés. MorphoRepr ne prétend pas décoder les représentations internes des LLMs ; il encode des hypothèses humaines structurées sur la sémantique des latents SAE, hypothèses qui doivent être validées par des expériences de prédiction d'activation et d'intervention causale. Soulignons d'emblée que MorphoRepr évalue la *prédictivité d'une annotation*, et non la puissance brute d'une méthode de steering.
+Les descriptions en langue naturelle des features des autoencodeurs sparses (SAEs) dans les grands modèles de langage (LLMs) peuvent être utiles et souvent précises, mais elles sont insuffisamment structurées pour l'évaluation systématique, la comparaison inter-features, l'agrégation statistique et la prédiction causale. Elles sont vagues, inconsistantes entre runs d'annotation, et résistent à la manipulation formelle. Nous proposons **MorphoRepr**, un langage contrôlé à structure morphologique inspiré d'une morphologie agglutinante régulière de type espéranto, conçu comme couche d'annotation lisible par l'humain pour les features sparses produits par des SAEs entraînés sur les activations de LLMs. Chaque expression MorphoRepr encode des hypothèses humaines sur la sémantique d'un ou plusieurs latents SAE sous forme d'une chaîne compositionnelle de morphèmes à sémantique contrôlée et testable, pondérés par des coefficients normalisés. MorphoRepr ne prétend pas décoder les représentations internes des LLMs ; il encode des hypothèses humaines structurées sur la sémantique des latents SAE, hypothèses qui doivent être validées par des expériences de prédiction d'activation et d'intervention causale. Soulignons d'emblée que MorphoRepr évalue la *prédictivité d'une annotation*, et non la puissance brute d'une méthode de steering.
 
-Nous présentons le cadre formel, un pipeline d'évaluation agentique en cinq phases, et un protocole d'évaluation complet spécifiant des métriques de couverture, fidélité (comme tâche de discrimination avec AUC-ROC), validité causale (via des classifieurs de propriétés de sortie stratifiés, avec un score primaire en macro-F1 et des intervalles de confiance bootstrap sur la **différence appariée** entre méthodes), productivité morphologique, et cohérence d'annotation au niveau morphémique — incluant des comparaisons directes, **sur un ensemble de features partagé**, aux étiquettes en langue naturelle, aux Semantic Regexes (Boggust et al., 2025), aux tags-mots-clés contrôlés et à un contrôle par annotations mélangées intra-split. La question ouverte centrale est de savoir si la composition morphologique agglutinante apporte un avantage mesurable sur ces alternatives en cohérence d'annotation, compacité et pouvoir prédictif causal. Les résultats expérimentaux seront rapportés dans une version ultérieure à l'issue de l'exécution du pipeline.
+Nous présentons le cadre formel, un pipeline d'évaluation agentique en cinq phases, et un protocole d'évaluation complet spécifiant des métriques de couverture, fidélité (comme tâche de discrimination avec AUC-ROC), validité causale (via des classifieurs de propriétés de sortie stratifiés, avec un score primaire **macro-F1 calculé sur l'ensemble des couples (feature, propriété robuste)**, une comparaison prédiction/observation **déterministe** — sans juge LLM dans la métrique primaire — et des intervalles de confiance bootstrap **clusterisés par feature** sur la **différence appariée** entre méthodes), productivité morphologique, et cohérence d'annotation au niveau morphémique. Les comparaisons aux étiquettes en langue naturelle, aux Semantic Regexes (Boggust et al., 2025), aux tags-mots-clés contrôlés et à un contrôle par annotations mélangées intra-split sont rapportées **à la fois** de façon conditionnelle (sur l'ensemble de features partagé) **et en utilité globale** (intégrant la couverture sur le random set complet). La question ouverte centrale est de savoir si la composition morphologique agglutinante apporte un avantage mesurable sur ces alternatives en cohérence d'annotation, compacité et pouvoir prédictif causal. Les résultats expérimentaux seront rapportés dans une version ultérieure à l'issue de l'exécution du pipeline.
 
 **Mots-clés :** interprétabilité mécaniste, autoencodeurs sparses, morphologie agglutinante, espéranto, annotation de features SAE, langage contrôlé, validité causale, productivité morphologique
 
@@ -30,7 +30,7 @@ Nous présentons le cadre formel, un pipeline d'évaluation agentique en cinq ph
 
 ## Abstract (English)
 
-Natural language descriptions of SAE features in LLMs can be useful and often accurate, but they are insufficiently structured for systematic evaluation, cross-feature comparison, and causal prediction. We propose MorphoRepr, a morphologically structured controlled language for SAE feature annotation, inspired by Esperanto-like regular agglutination without any claim of linguistic optimality. We present a five-phase agentic evaluation pipeline with a complete evaluation protocol including fidelity as an AUC-ROC discrimination task, causal validity via stratified output property classifiers (with a macro-F1 primary score and bootstrap confidence intervals on the *paired* per-feature difference between methods, computed on a shared feature set), morphological productivity metrics, a within-split shuffled control, and a planned human audit and user study. MorphoRepr evaluates the predictivity of an annotation, not the raw power of a steering method. This is a position paper; no experimental claims are made.
+Natural language descriptions of SAE features in LLMs can be useful and often accurate, but they are insufficiently structured for systematic evaluation, cross-feature comparison, and causal prediction. We propose MorphoRepr, a controlled morphological language for SAE feature annotation, inspired by Esperanto-like regular agglutination without any claim of linguistic optimality. We present a five-phase agentic evaluation pipeline with a complete evaluation protocol including fidelity as an AUC-ROC discrimination task, causal validity via stratified output property classifiers (with a macro-F1 primary score over all (feature, robust-property) pairs, a *deterministic* prediction-vs-observation comparison with no LLM judge in the primary metric, and feature-clustered bootstrap confidence intervals on the *paired* difference between methods), morphological productivity metrics, a within-split shuffled control, and a planned human audit and user study. Comparisons are reported both conditionally (on a shared feature set) and as end-to-end utility (accounting for coverage on the full random set). MorphoRepr evaluates the predictivity of an annotation, not the raw power of a steering method. This is a position paper; no experimental claims are made.
 
 **Keywords:** mechanistic interpretability, sparse autoencoders, agglutinative morphology, Esperanto, SAE feature annotation, controlled language, causal validity, morphological productivity
 
@@ -54,7 +54,7 @@ Ce papier apporte les contributions suivantes :
 
 1. **Conceptuelle** : nous proposons MorphoRepr comme langage contrôlé pour l'annotation des features SAE et établissons son ancrage théorique dans l'hypothèse de représentation linéaire et l'hypothèse de superposition, tout en distinguant explicitement ses deux mécanismes de composition (additif et agglutinant), de statut épistémique différent (Section 3.1).
 
-2. **Méthodologique** : nous décrivons un pipeline agentique en cinq phases pour induire empiriquement un lexique MorphoRepr à partir de features SAE, et spécifions un protocole d'évaluation complet incluant : la couverture sur des splits stratifiés ; la fidélité comme tâche de discrimination AUC-ROC ; la validité causale via des classifieurs de propriétés de sortie stratifiés (robustes, semi-robustes et fragiles), avec un **score primaire en macro-F1** et des **intervalles de confiance bootstrap sur la différence appariée entre méthodes**, calculés **sur un ensemble de features partagé** ; des métriques de productivité morphologique ; des métriques de cohérence d'annotation au niveau morphémique ; un contrôle mélangé intra-split ; et un audit humain et une étude utilisateur planifiés. La validation causale principale est conçue pour s'exécuter sur un modèle proxy open-weight (Section 4.2).
+2. **Méthodologique** : nous décrivons un pipeline agentique en cinq phases pour induire empiriquement un lexique MorphoRepr à partir de features SAE, et spécifions un protocole d'évaluation complet incluant : la couverture sur des splits stratifiés et **disjoints** (le random set étant échantillonné en premier, uniformément, pour rester représentatif) ; la fidélité comme tâche de discrimination AUC-ROC ; la validité causale via des classifieurs de propriétés de sortie stratifiés (robustes, semi-robustes et fragiles), avec un **score primaire macro-F1 calculé sur l'ensemble des couples (feature, propriété robuste)**, une comparaison prédiction/observation **déterministe** (sans juge LLM dans la métrique primaire) et des **intervalles de confiance bootstrap clusterisés par feature** sur la **différence appariée entre méthodes**, rapportée **conditionnellement** (ensemble de features partagé) **et en utilité globale** (intégrant la couverture) ; des métriques de productivité morphologique ; des métriques de cohérence d'annotation au niveau morphémique ; un contrôle mélangé intra-split ; et un audit humain et une étude utilisateur planifiés. Face à la baseline forte que sont les Semantic Regexes, le critère principal est formulé en **non-infériorité** (et non seulement en supériorité). La validation causale principale est conçue pour s'exécuter sur un modèle proxy open-weight (Section 4.2).
 
 3. **Prospective** : nous identifions les questions de recherche ouvertes que les versions expérimentales ultérieures devront traiter, discutons les menaces à la validité, et esquissons un agenda de recherche à plus long terme.
 
@@ -64,12 +64,13 @@ Ce papier est un **article de positionnement et protocole d'évaluation**. Il pr
 
 Pour clarifier ce qui est et n'est pas revendiqué, le tableau suivant met en regard chaque affirmation, son statut dans la présente version et l'évidence prévue pour la tester :
 
-| Affirmation | Statut (v0.27) | Évidence prévue |
+| Affirmation | Statut (v0.28) | Évidence prévue |
 |-------------|----------------|-----------------|
 | MorphoRepr est plus compact que les étiquettes NL | Hypothèse | longueur / entropie / étude utilisateur |
 | MorphoRepr est plus cohérent que les étiquettes NL | Hypothèse | Jaccard sur deux runs |
-| MorphoRepr est plus prédictif causalement que les Semantic Regexes | **Hypothèse principale** | steering + classifieurs (Section 4) |
-| MorphoRepr est plus lisible que les Semantic Regexes | Hypothèse | étude utilisateur (Section 4.6) |
+| MorphoRepr est au moins non inférieur aux Semantic Regexes en prédictivité causale | **Hypothèse principale** | steering + classifieurs, différence appariée (Section 4) |
+| MorphoRepr conserve une utilité globale malgré une couverture partielle | **Hypothèse** | utilité end-to-end = couverture × score causal (Section 4) |
+| MorphoRepr est plus lisible que les Semantic Regexes | Hypothèse | étude utilisateur, tâche d'interprétation (Section 4.6) |
 | MorphoRepr couvre tous les latents SAE | **Non revendiqué** | taux UNCOVERED catégorisé |
 | L'agglutination apporte un gain au-delà des primitives partagées | **Question ouverte** | étude d'ablation (Section 4.7) |
 
@@ -95,6 +96,19 @@ La différence structurelle clé est le mécanisme de composition. Les Semantic 
 
 L'affirmation de meilleure lisibilité humaine — que `0.87·mal-far-int-e` est plus lisible que `¬(ag:past & subject:human)` — est une hypothèse ergonomique, non un résultat établi. Cela sera testé dans l'étude utilisateur planifiée (Section 4.6).
 
+Le tableau 1 illustre, à titre d'exemple non validé, une même feature annotée par les quatre systèmes comparés (le contenu MorphoRepr reprend l'exemple pédagogique du feature #7823, Section 3.4).
+
+**Tableau 1 — Une même feature (« contextes émotionnellement négatifs, deuil et perte ») selon quatre systèmes d'annotation (illustratif).**
+
+| Système | Annotation (exemple) |
+|---------|----------------------|
+| Étiquette en langue naturelle | « tokens apparaissant dans des contextes émotionnellement négatifs, en particulier le deuil et la perte » |
+| Semantic Regex (forme logique) | `sem:negative_emotion & (sem:grief \| sem:loss)` |
+| Tags-mots-clés contrôlés | `émotion_négative ; deuil ; perte` |
+| MorphoRepr | `0.86·mal-emo-a + 0.42·ne-soc-a` |
+
+La forme Semantic Regex ci-dessus est une reconstruction plausible à titre illustratif et non une sortie de l'outil officiel ; les annotations réelles des trois baselines seront produites par leurs implémentations respectives dans le protocole (Section 4).
+
 **Fidélité comme tâche de détection.** La métrique de fidélité que nous adoptons (Section 4) — discriminer les exemples à forte activation des contrôles à partir de l'annotation seule — relève de la tradition du *detection scoring* de l'auto-interprétation (Bills et al., 2023 ; Paulo et al., 2024), reformulée ici en AUC-ROC. Nous ne la présentons pas comme nouvelle, mais comme un endpoint testable réutilisé.
 
 ### 2.3 Édition de modèles
@@ -115,6 +129,8 @@ Plusieurs travaux récents délimitent la place de MorphoRepr.
 
 **Benchmarks de steering et baselines représentationnelles.** AxBench (Wu et al., 2025) compare directement prompting, finetuning, SAEs, difference-in-means (DiffMean), probes linéaires et representation finetuning (ReFT). Sur le steering, le prompting surpasse toutes les méthodes, suivi du finetuning ; pour la détection de concepts, DiffMean est la meilleure ; les SAEs n'y sont pas compétitifs. Une réponse récente (Jørgensen & Hansen, 2026) nuance ce constat : les SAEs redeviennent quasi à parité avec une baseline LoRA sur AxBench lorsque les features sont sélectionnés et étiquetés par un pipeline supervisé. Ce débat est directement pertinent : MorphoRepr n'évalue pas la puissance d'une méthode de steering mais la **prédictivité causale d'une annotation**, et nous incluons DiffMean / ReFT comme points de comparaison d'intervention (Section 4.2).
 
+**Explication par feedback d'activation.** Des travaux très récents poursuivent l'idée d'exploiter le feedback d'activation pour améliorer les explications de features SAE : SAEExplainer (He et al., 2026) entraîne le modèle explicateur par optimisation de préférences guidée par les scores d'activation (auto-correction et bootstrapping itératif en deux passes), réduisant les hallucinations d'explication et renforçant les motifs de déclenchement causal. MorphoRepr se distingue de cette ligne en imposant une **notation morphologique contrôlée** plutôt qu'une explication en langue libre, et en faisant de la prédictivité causale un critère d'évaluation plutôt qu'un signal d'entraînement.
+
 ---
 
 ## 3. Le système MorphoRepr
@@ -123,7 +139,7 @@ Plusieurs travaux récents délimitent la place de MorphoRepr.
 
 MorphoRepr est conçu selon quatre principes :
 
-**Compositionnalité morphologique.** Toute expression MorphoRepr est une concaténation finie de morphèmes tirés d'un inventaire fixe. Le sens d'une expression est entièrement déterminé par les sens de ses morphèmes constitutifs et leur ordre de composition.
+**Compositionnalité morphologique.** Toute expression MorphoRepr est une concaténation finie de morphèmes tirés d'un inventaire fixe. L'interprétation conventionnelle d'une expression est déterminée par les sens de ses morphèmes constitutifs et leur ordre de composition (le contenu réel du latent annoté restant, lui, une hypothèse à valider).
 
 **Encodage pondéré.** Chaque terme d'une expression est précédé d'un coefficient réel dans [0,01 ; 1,00] (voir Section 3.2 pour son interprétation). Une expression complète prend la forme :
 
@@ -141,7 +157,7 @@ se lit : *« n'ayant pas (vraiment) agi (coefficient 0,87) plus ayant continué 
 
 **Deux mécanismes de composition, de statut épistémique différent.** MorphoRepr combine les morphèmes de deux manières qu'il importe de ne pas confondre. La combinaison *additive* entre termes (`c₁·m₁ + c₂·m₂`) est l'analogue naturel de la superposition linéaire : sous la LRH, des directions de features s'additionnent dans l'espace d'activation. La concaténation *agglutinante* à l'intérieur d'un mot (`mal-far-int-e`), en revanche, est ordonnée et non commutative et **ne correspond à aucune opération de l'algèbre des activations SAE** (ni somme, ni projection). Elle est, à ce stade, un pari ergonomique : produire un token unique, prononçable et compositionnel, plus lisible qu'une formule. C'est précisément ce mécanisme qui distingue MorphoRepr des Semantic Regexes, et c'est aussi celui dont l'apport doit être démontré plutôt que supposé. L'étude d'ablation (Section 4.7) est conçue pour isoler empiriquement la contribution de l'agglutination et de l'ordre.
 
-**Sémantique formelle des morphèmes.** Chaque morphème de l'inventaire dispose d'une définition formellement spécifiée comprenant : (a) une dénotation en termes de primitive sémantique, (b) un énoncé de portée précisant ce que le morphème couvre et exclut, et (c) un ensemble de features SAE attestés que le morphème encode de façon fiable.
+**Sémantique opérationnellement spécifiée des morphèmes.** Chaque morphème de l'inventaire dispose d'une définition contrôlée et testable comprenant : (a) une dénotation en termes de primitive sémantique, (b) un énoncé de portée précisant ce que le morphème couvre et exclut, et (c) un ensemble de features SAE attestés que le morphème encode de façon fiable. Nous réservons le qualificatif « formel » à la *grammaire* (Annexe A) ; le *sens* des morphèmes est spécifié opérationnellement (par définition contrôlée, prompts et parseur), non par une sémantique dénotationnelle ou logique au sens fort.
 
 **Expressivité bornée.** MorphoRepr est explicitement conçu comme une *projection avec perte*. Il capture le contenu morpho-syntaxique et largement sémantique des features SAE. Le contenu pragmatique, culturel, spécifique aux entités nommées et profondément contextuel se situe hors de sa portée par conception. Le résidu — les features que le système ne peut pas encoder avec confiance ≥ 0,50 — est une sortie de première classe (UNCOVERED), non un mode d'échec.
 
@@ -290,13 +306,13 @@ Le pipeline se compose de cinq phases plus un audit humain, une étude utilisate
 
 **Sources de données** : SAEs publics via l'API Neuronpedia ; SAE-Bench (EleutherAI) ; `sae_lens`. **Cohérence modèle/couche** : tous les features d'un run proviennent d'un même modèle et, sauf indication contraire, d'une même couche ; en mode proxy (voir ci-dessous), la source de features est celle du modèle proxy, et les exemples Claude 3 Sonnet de la Section 3.4 restent purement illustratifs.
 
-L'*agent de chargement* récupère pour chaque feature son index, ses 20 exemples à activation maximale avec leurs valeurs d'activation, son score d'interprétabilité existant, sa fréquence d'activation, sa couche et ses statistiques d'activation (dont le 99e percentile, pour la normalisation et la détection OOD). L'*agent de classement* constitue **trois splits d'évaluation disjoints** pour éviter le biais de sélection :
+L'*agent de chargement* récupère pour chaque feature son index, ses 20 exemples à activation maximale avec leurs valeurs d'activation, son score d'interprétabilité existant, sa fréquence d'activation, sa couche et ses statistiques d'activation (dont le 99e percentile, pour la normalisation et la détection OOD). L'*agent de classement* constitue **trois splits d'évaluation disjoints**, en échantillonnant le random set **en premier** afin qu'il reste un véritable échantillon représentatif (et non un « middle set » dont on aurait retiré le facile et le difficile) :
 
-- **Easy set** (n=200) : features avec score d'interprétabilité ≥ 0,7, haute fréquence
-- **Random set** (n=200) : features échantillonnés uniformément **dans le complément de easy ∪ hard** (disjonction garantie)
-- **Hard set** (n=100) : features avec score d'interprétabilité < 0,5, ou context-dépendants, ou spécifiques à un domaine (code, mathématiques, entités nommées, multilingue)
+1. **Random set** (n=200) : échantillonné **uniformément parmi l'ensemble des features**, avant tout autre split. Ces features sont ensuite retirées du pool.
+2. **Easy set** (n=200) : échantillonné dans le pool restant parmi les features à score d'interprétabilité ≥ 0,7 et haute fréquence.
+3. **Hard set** (n=100) : échantillonné dans le pool restant parmi les features à score d'interprétabilité < 0,5, ou context-dépendantes, ou spécifiques à un domaine (code, mathématiques, entités nommées, multilingue).
 
-Tous les seuils go/no-go principaux sont évalués sur le **random set**.
+Ce protocole garantit la disjonction tout en préservant la représentativité du random set, sur lequel sont évalués **tous les seuils go/no-go principaux**. (Les easy/hard sets servent à caractériser le comportement aux extrêmes, non au critère principal.)
 
 #### Phase 2 : Induction du lexique MorphoRepr
 
@@ -355,13 +371,29 @@ ROUGE-L est conservé comme métrique secondaire pour la comparaison aux baselin
 
 **Modèle de validation (proxy par défaut).** L'accès expérimental complet aux activations de Claude 3 Sonnet (steering contrôlé avec génération avant/après) n'est pas garanti par les interfaces publiques. La validation causale principale s'exécute donc sur un **modèle proxy open-weight disposant de SAEs publics** (p. ex. GPT-2, Pythia ou Mistral via `sae_lens`). Dans ce cas : (a) toutes les conclusions causales sont limitées au modèle proxy ; (b) le pipeline entier (Phases 1–5) opère sur les SAEs du proxy ; (c) cela est déclaré explicitement en section Méthodes du papier expérimental. Si un accès direct aux activations d'un modèle de production est obtenu, le même protocole s'y applique.
 
-**Protocole de steering** : pour chaque feature encodé, l'*agent de steering* amplifie le latent SAE cible **à sa propre couche** (colonne `layer` du feature) sur 20 phrases-sondes neutres et enregistre le déplacement de sortie. La **magnitude primaire est normalisée par feature** (un multiple du 99e percentile d'activation du feature), ce qui rend les interventions comparables entre features et couches ; la magnitude historique fixe de +5 unités (Anthropic, 2024) est conservée comme condition secondaire. Une courbe dose-réponse (plusieurs multiples de `p99`) est exécutée sur un sous-échantillon ; sa monotonie sert de preuve d'effet causal réel. Un *agent de prédiction causale* génère une prédiction comportementale basée **uniquement sur l'expression MorphoRepr** — voir Annexe B.3. Un *agent juge* évalue si le déplacement observé correspond à la prédiction.
+**Protocole de steering** : pour chaque feature encodé, l'*agent de steering* amplifie le latent SAE cible **à sa propre couche** (colonne `layer` du feature) et enregistre le déplacement de sortie. La **magnitude primaire est normalisée par feature** (un multiple du 99e percentile d'activation du feature, et l'on rapporte le *delta d'activation effectivement obtenu*, pas seulement la magnitude visée), ce qui rend les interventions comparables entre features et couches ; la magnitude historique fixe de +5 unités (Anthropic, 2024) est conservée comme condition secondaire. Une courbe dose-réponse (plusieurs multiples de `p99`) est exécutée sur un sous-échantillon ; sa monotonie fournit un **indice supplémentaire en faveur d'un effet causal stable** (et non une preuve : une courbe monotone peut résulter d'artefacts d'intervention ou d'effets OOD non détectés).
 
-**Exclusion des sorties hors-distribution (OOD)** : une instance dont l'activation obtenue dépasse `p99 × seuil_OOD` est marquée OOD et **exclue de la métrique primaire** (rapportée séparément) : un steering qui pousse le modèle hors-distribution mesure du bruit, non le rôle causal du feature.
+**Phrases-sondes.** La métrique primaire utilise **50 phrases-sondes** (20 pour le dev/pilot), avec **plusieurs générations par sonde** (≥ 2) pour amortir la stochasticité, des paramètres de génération **gelés et rapportés** (température, mode greedy/sampling, longueur maximale, seed quand disponible) et un critère d'échec pré-enregistré. Deux familles de sondes sont prévues : (a) **sondes neutres**, génériques et comparables entre features ; (b) **sondes compatibles par domaine** (code, social, temporel, spatial, affect, données), pré-enregistrées par catégorie sans utiliser la description spécifique du feature, pour révéler les effets de features spécialisées qu'un contexte trop neutre n'activerait pas. Les sondes compatibles ne doivent pas donner la réponse à l'avance.
 
-**Garde-fou méthodologique contre la circularité** : l'agent juge reçoit uniquement l'expression MorphoRepr et le déplacement de sortie observé, non la description en langue naturelle. La baseline MorphoRepr mélangé quantifie de plus la part du pouvoir prédictif attribuable à la forme morphologique seule, indépendamment de l'étape d'encodage.
+**Comparaison prédiction/observation — déterministe.** Un *agent de prédiction causale* génère, **uniquement à partir de l'expression MorphoRepr** (Annexe B.3), une direction attendue {increase, decrease, no_change} pour chaque propriété. Les **classifieurs automatiques pré-enregistrés** mesurent la direction observée. La **comparaison prédiction/observation est faite par code déterministe** : *la métrique primaire ne dépend pas d'un juge LLM*. Un juge LLM est réservé aux analyses qualitatives, aux cas ambigus et à l'audit assisté (métriques secondaires).
 
-**Comparaison équitable entre méthodes.** Le tête-à-tête de validité causale (MorphoRepr vs étiquettes NL vs Semantic Regexes) est calculé **sur le même ensemble de features** — l'intersection des features couverts par MorphoRepr (confiance ≥ 0,5) — afin d'éviter que MorphoRepr ne soit avantagé en n'étant évalué que sur ses features les plus clairs. Les baselines sont en outre rapportées sur le set complet pour transparence. **Symétrie des prédicteurs** : chaque baseline dispose d'un prompt de prédiction parallèle (prenant son annotation et prédisant les mêmes propriétés), ingénieré avec un soin égal et gelé avant le run, afin que la comparaison ne se joue pas sur la qualité différentielle des prompts.
+**Exclusion des sorties hors-distribution (OOD)** : pour ne pas dépendre du seul `p99` (fragile pour les features à `p99` très faible, rares, ou à distribution asymétrique), une instance est marquée OOD selon un **critère mixte pré-enregistré** :
+
+```
+OOD si  activation_after > max( p99 × τ ,  mean + k·std ,  ε )
+        OU  |activation_after − activation_before| > delta_max × p99
+```
+
+avec `τ`, `k`, `ε`, `delta_max` pré-enregistrés. Les instances OOD sont **exclues de la métrique primaire** et rapportées séparément : un steering qui pousse le modèle hors-distribution mesure du bruit, non le rôle causal du feature.
+
+**Garde-fou méthodologique contre la circularité** : la métrique primaire n'emploie aucun juge LLM (comparaison déterministe prédiction/classifieur, ci-dessus), et l'agent de prédiction ne voit que l'expression MorphoRepr, jamais la description en langue naturelle du feature. La baseline MorphoRepr mélangé quantifie de plus la part du pouvoir prédictif attribuable à la forme morphologique seule, indépendamment de l'étape d'encodage.
+
+**Comparaison équitable : performance conditionnelle ET utilité globale.** Le tête-à-tête de validité causale (MorphoRepr vs étiquettes NL vs Semantic Regexes) est calculé **sur le même ensemble de features** — l'intersection des features couverts par MorphoRepr (confiance ≥ 0,5). Cette **performance conditionnelle** répond à « quand MorphoRepr accepte d'annoter, est-il au moins aussi bon ? », mais ne dit rien de l'**utilité globale** si MorphoRepr couvre, par exemple, 45 % du random set là où les Semantic Regexes en couvrent 85 %. Nous rapportons donc **systématiquement deux niveaux** :
+
+- *Performance conditionnelle* : score causal sur les features couverts par MorphoRepr (comparaison appariée).
+- *Utilité globale (end-to-end)* : sur le **random set complet**, soit `utilité = couverture × score causal moyen`, soit un score intégré où les features UNCOVERED comptent comme **abstention/score nul** selon une règle pré-enregistrée.
+
+Sans la seconde, un avantage conditionnel pourrait masquer un désavantage de couverture. **Symétrie des prédicteurs** : chaque baseline dispose d'un prompt de prédiction parallèle (prenant son annotation et prédisant les mêmes propriétés), ingénieré avec un soin égal et gelé avant le run, afin que la comparaison ne se joue pas sur la qualité différentielle des prompts.
 
 **Classifieurs de propriétés de sortie — stratifiés par niveau de robustesse** :
 
@@ -393,7 +425,7 @@ Plutôt qu'un jugement binaire unique, le protocole mesure un ensemble de propri
 
 Les résultats des propriétés fragiles sont rapportés séparément et interprétés avec des mises en garde explicites. Les conclusions de validité causale sont tirées principalement des propriétés robustes et semi-robustes. Toutes les sorties des classifieurs sont vérifiées sur un échantillon aléatoire de 50 features avant le run complet, avec rapport des matrices de confusion.
 
-**Score de validité causale.** L'agent de prédiction causale prédit la direction de changement de chaque propriété ({increase, decrease, no_change}) ; le juge mesure la direction observée. Le **score primaire est le macro-F1 sur ces trois directions**, restreint aux propriétés robustes, **calculé par feature puis moyenné** sur le random set (l'accuracy par propriété est conservée comme métrique secondaire). Le macro-F1 traite explicitement la classe `no_change` et n'est pas biaisé par le déséquilibre des directions. Les cas où l'agent ne prédit aucune propriété, ou où le steering échoue, sont comptabilisés selon une règle pré-enregistrée (échec de prédiction = score nul pour la propriété concernée) ; les instances OOD sont exclues comme indiqué ci-dessus.
+**Score de validité causale.** L'agent de prédiction prédit la direction de changement de chaque propriété ({increase, decrease, no_change}) ; les classifieurs pré-enregistrés mesurent la direction observée ; la concordance est évaluée **par code déterministe**. Le **score primaire est un macro-F1 calculé globalement sur l'ensemble des couples (feature, propriété robuste)** du random set — et non par feature puis moyenné, car par feature les propriétés robustes sont trop peu nombreuses (négation, temps, code, modalité) et certaines classes peuvent être absentes, rendant un macro-F1 par feature instable. L'**unité de rééchantillonnage du bootstrap reste la feature** (bootstrap **clusterisé par feature**), de sorte que la dépendance intra-feature est correctement prise en compte tout en stabilisant le score. Le macro-F1 par feature puis moyenné est conservé comme **métrique secondaire** (lisibilité). Le macro-F1 traite explicitement la classe `no_change` et n'est pas biaisé par le déséquilibre des directions. Les cas où l'agent ne prédit aucune propriété, ou où le steering échoue, sont comptabilisés selon une règle pré-enregistrée (échec de prédiction = score nul pour la propriété concernée) ; les instances OOD sont exclues comme indiqué ci-dessus.
 
 **Catégories de résultat de validité causale** : chaque feature est assigné à l'une des quatre catégories : *confirmé* (majorité des propriétés robustes prédites se déplacent comme attendu), *partiel* (certaines propriétés se déplacent), *nul* (aucun déplacement mesurable), *mixte/ambigu* (déplacements dans des directions inattendues).
 
@@ -405,18 +437,22 @@ Les résultats des propriétés fragiles sont rapportés séparément et interpr
 - **prompt-only** : fournir l'étiquette dans le prompt sans steering ;
 - baseline supervisée **DiffMean / ReFT** (cf. Section 2.5).
 
+*Interprétation de la baseline prompt-only.* AxBench (Wu et al., 2025) montre que le prompting est très fort pour le steering comportemental ; aussi, si prompt-only dépasse MorphoRepr + steering, ce n'est **pas** un échec de MorphoRepr comme annotation. La baseline prompt-only est rapportée comme **contrôle d'intervention comportementale**, non comme une baseline directe d'annotation mécanistique : l'objectif de MorphoRepr n'est pas la puissance brute de contrôle.
+
 **Contrôles de validité supplémentaires** :
-- Annotations MorphoRepr mélangées comme contrôle négatif (attendu : validité causale proche du hasard). *Pour rester comparable au traitement, un sous-ensemble des annotations mélangées est scoré via le même chemin predictor + juge que le traitement ; le reste via classifieurs pour borner le coût.*
+- Annotations MorphoRepr mélangées comme contrôle négatif (attendu : validité causale proche du hasard). *Pour rester comparable au traitement, le contrôle mélangé est scoré par le **même chemin déterministe** (prédicteur + classifieurs) que le traitement ; une fraction est en outre rapportée via le juge LLM qualitatif uniquement comme analyse secondaire.*
 - Validation causale exécutée séparément pour les splits easy / random / hard
 - Deux runs de prédiction indépendants ; κ de Cohen sur les résultats catégoriels
 
-**Critère go/no-go** : le critère de publication principal est l'**amélioration relative par rapport aux baselines**, évaluée par une comparaison **appariée** (les méthodes annotant les mêmes features) :
+**Critère go/no-go** : le critère de publication principal est une comparaison **appariée** (les méthodes annotant les mêmes features), avec deux cibles distinctes selon la force de la baseline :
 
-> MorphoRepr est considéré comme démontrant une utilité causale si, sur le random set et l'ensemble de features partagé, l'**intervalle de confiance bootstrap à 95 % de la différence appariée** de score de validité causale (MorphoRepr − baseline, par feature) **exclut 0** dans le sens positif, à la fois face aux étiquettes en langue naturelle et face aux Semantic Regexes.
+> **Face aux étiquettes en langue naturelle (supériorité)** : MorphoRepr démontre une utilité causale si, sur le random set et l'ensemble de features partagé, l'**intervalle de confiance bootstrap à 95 % (clusterisé par feature) de la différence appariée** de score de validité causale (MorphoRepr − NL) **exclut 0** dans le sens positif.
+>
+> **Face aux Semantic Regexes (non-infériorité, baseline forte)** : MorphoRepr est jugé **non inférieur** si la **borne basse** de l'IC à 95 % de la différence appariée (MorphoRepr − Semantic Regexes) est **supérieure à −δ**, avec une marge `δ` **pré-enregistrée** (p. ex. 0,05 en macro-F1). La supériorité (IC excluant 0 dans le sens positif) est un objectif souhaité mais non requis pour ce premier papier expérimental.
 
-Cette formulation appariée remplace le critère antérieur de « non-chevauchement des intervalles de confiance marginaux », qui était inutilement conservateur. Le plancher opérationnel de 0,50 (macro-F1) sur le random set est conservé comme seuil absolu minimal en dessous duquel le système n'a aucune utilité pratique indépendamment de la comparaison aux baselines.
+Ces critères sont en outre rapportés en **utilité globale** (end-to-end, intégrant la couverture, ci-dessus). Cette formulation appariée remplace le critère antérieur de « non-chevauchement des intervalles de confiance marginaux », inutilement conservateur. Le plancher opérationnel de 0,50 (macro-F1 global) sur le random set est conservé comme seuil absolu minimal en dessous duquel le système n'a aucune utilité pratique, indépendamment de la comparaison aux baselines.
 
-**Méthodologie statistique.** Tous les intervalles de confiance sont bootstrap (10 000 rééchantillonnages, **stratifiés par split**, graine fixée). Les comparaisons principales (pré-déclarées : validité causale sur random set, propriétés robustes, vs NL et vs Semantic Regexes) sont corrigées par **Holm-Bonferroni** ; les analyses exploratoires (autres splits, propriétés fragiles, métriques secondaires) sont signalées comme telles et corrigées par **Benjamini-Hochberg**. Une analyse de puissance indicative est rapportée (avec ≈100 features appariés entrant en validation causale et un effet attendu de l'ordre de 0,05–0,10, la puissance de détection d'une différence MorphoRepr vs Semantic Regexes est limitée et explicitement quantifiée).
+**Méthodologie statistique.** Tous les intervalles de confiance sont bootstrap (10 000 rééchantillonnages, **clusterisés par feature** — l'unité de rééchantillonnage est la feature, pas le couple feature-propriété — et stratifiés par split, graine fixée). Les comparaisons principales (pré-déclarées : validité causale sur random set, propriétés robustes, vs NL en supériorité et vs Semantic Regexes en non-infériorité avec marge `δ` pré-enregistrée) sont corrigées par **Holm-Bonferroni** ; les analyses exploratoires (autres splits, propriétés fragiles, métriques secondaires, utilité end-to-end) sont signalées comme telles et corrigées par **Benjamini-Hochberg**. Une analyse de puissance indicative est rapportée (avec ≈100 features appariés entrant en validation causale et un effet attendu de l'ordre de 0,05–0,10, la puissance de détection d'une différence MorphoRepr vs Semantic Regexes est limitée et explicitement quantifiée — ce qui motive le cadrage en non-infériorité).
 
 #### Phase 5 : Synthèse et publication
 
@@ -464,9 +500,10 @@ Audit humain :           50 features, 2 annotateurs + arbitre
 | Couverture brute — random set (conf ≥ 0,6) | 45 % | 60 % |
 | Couverture brute — hard set (conf ≥ 0,6) | 20 % | 35 % |
 | AUC-ROC de fidélité — random set | 0,60 | 0,72 |
-| Validité causale (macro-F1) — random set, props robustes (plancher) | 0,50 | 0,65 |
-| Validité causale vs étiquettes NL, random set (ens. partagé) | — | Différence appariée > 0, IC à 95 % excluant 0 |
-| Validité causale vs Semantic Regexes, random set (ens. partagé) | — | Différence appariée ≥ 0, IC à 95 % |
+| Validité causale (macro-F1 global, couples feature-propriété) — random set, props robustes (plancher) | 0,50 | 0,65 |
+| Validité causale vs étiquettes NL (supériorité), ens. partagé | — | Différence appariée > 0, IC 95 % (clusterisé par feature) excluant 0 |
+| Validité causale vs Semantic Regexes (non-infériorité), ens. partagé | — | Borne basse de l'IC 95 % de la différence appariée > −δ (δ pré-enregistré, p. ex. 0,05) |
+| Utilité globale (end-to-end) — random set complet | — | Rapportée (couverture × score causal ; UNCOVERED = abstention/0) |
 | Cohérence d'annotation — Jaccard de racines, random set | 0,60 | 0,75 |
 | Cohérence d'annotation — exact match, random set | 0,30 | 0,50 |
 | Audit humain — Jaccard de morphèmes pipeline vs humain | — | ≥ 0,60 |
@@ -480,11 +517,14 @@ L'affirmation que les annotations MorphoRepr sont plus lisibles par l'humain et 
 
 **Participants** : 20 chercheurs NLP/ML sans exposition préalable à MorphoRepr.
 
-**Design** : intra-sujet, contrebalancé. Chaque participant annote 30 features SAE avec trois systèmes (MorphoRepr, Semantic Regexes, étiquettes en langue naturelle) dans un ordre aléatoire, après une courte session de formation.
+**Design — deux tâches, l'interprétation d'abord.** Pour limiter la charge (annoter 30 features × 3 systèmes représente jusqu'à 90 tâches par participant, avec de forts effets d'apprentissage inter-systèmes), nous séparons deux tâches et faisons de la première l'étude principale :
 
-**Mesures** : temps d'apprentissage (durée de complétion de la session de formation) ; temps d'interprétation (moyenne par feature) ; précision d'interprétation (correspondance avec des annotations gold d'experts **indépendants des concepteurs de MorphoRepr**) ; cohérence d'annotation (accord entre deux participants par feature) ; charge cognitive subjective (NASA-TLX) ; classement de préférence.
+- **Tâche A — Interprétation (étude principale, la mieux adaptée à la lisibilité).** Le participant *lit* une annotation (MorphoRepr, Semantic Regex ou étiquette NL) et prédit quels exemples activent la feature. Design intra-sujet contrebalancé sur un nombre raisonnable de features par système ; mesure la lisibilité sans dépendre de la difficulté de *produire* la notation.
+- **Tâche B — Production (étude secondaire).** Le participant *produit* une annotation MorphoRepr ou Semantic Regex. Beaucoup plus difficile et fortement dépendante de la formation ; rapportée séparément, après la Tâche A.
 
-**Hypothèse** : les annotations MorphoRepr seront interprétées plus rapidement et avec une cohérence plus élevée que les Semantic Regexes, au prix d'une apprenabilité initiale plus faible. Cette hypothèse est empirique, non supposée.
+**Mesures** : temps d'apprentissage (durée de la session de formation) ; temps d'interprétation (moyenne par feature) ; précision d'interprétation (correspondance avec des annotations gold d'experts **indépendants des concepteurs de MorphoRepr**) ; cohérence inter-participants ; charge cognitive subjective (NASA-TLX) ; classement de préférence.
+
+**Hypothèse** : en Tâche A, les annotations MorphoRepr seront interprétées au moins aussi rapidement et avec une cohérence au moins comparable aux Semantic Regexes, possiblement au prix d'une apprenabilité initiale plus faible. Cette hypothèse est empirique, non supposée.
 
 ### 4.7 Étude d'ablation planifiée
 
@@ -508,16 +548,18 @@ Ces directions sont proposées comme programme de recherche en trois papiers : l
 
 ## 6. Positionnement dans la littérature actuelle
 
-| Approche | Compositionnalité | Lisibilité humaine | Cohérence | Validité causale |
-|----------|------------------|-------------------|-----------|-----------------|
-| Étiquettes en langue naturelle (Bills et al., 2023) | Aucune | Élevée | Faible | Non évaluée |
-| Semantic Regexes (Boggust et al., 2025) | Logique | Modérée | Élevée | Non évaluée |
-| LinguaLens (2025 ; cf. réf., auteurs à confirmer) | Aucune | Élevée | Modérée | Partielle |
-| Explication agentique — SAGE (Han et al., 2025) | Aucune (langue libre) | Élevée | Modérée | Partielle |
-| Autoencodeurs en langage naturel (Anthropic, 2026) | Aucune | Élevée | Modérée | Reconstruction |
-| TCAV (Kim et al., 2018) | Aucune | Modérée | Modérée | Partielle |
-| **MorphoRepr (proposé)** | **Agglutinante** | **Élevée (hypothèse)** | **À mesurer** | **Critère central** |
-| Logique du premier ordre | Complète | Faible | Élevée | Élevée |
+Plutôt qu'un tableau de notes (compositionnalité/lisibilité/validité « élevée/modérée »), facilement contestable — une logique du premier ordre, par exemple, a une expressivité et une vérifiabilité formelles mais aucun lien causal intrinsèque avec les latents SAE — nous caractérisons chaque approche par son objet, sa sortie et son mode d'évaluation principal.
+
+| Approche | Objet principal | Sortie | Évaluation principale |
+|----------|-----------------|--------|------------------------|
+| Étiquettes NL (Bills et al., 2023) | explication humaine | texte libre | detection scoring |
+| Semantic Regexes (Boggust et al., 2025) | annotation structurée | formule structurée | précision, concision, cohérence, étude utilisateur |
+| LinguaLens (Jing et al., 2025) | analyse de mécanismes linguistiques | features SAE étiquetées | couverture/qualité des features linguistiques |
+| SAGE (Han et al., 2025) | explication agentique | texte libre raffiné | feedback d'activation |
+| SAEExplainer (He et al., 2026) | explication par feedback | texte libre optimisé | scores d'activation (déclenchement causal, discrimination) |
+| NLA (Anthropic, 2026) | verbalisation d'activation | texte naturel | reconstruction d'activation |
+| TCAV (Kim et al., 2018) | sensibilité à un concept | scores de concept | tests de sensibilité directionnelle |
+| **MorphoRepr (proposé)** | **annotation contrôlée** | **chaîne morphologique** | **cohérence + prédictivité causale** |
 
 La question ouverte centrale distinguant MorphoRepr des Semantic Regexes est de savoir si la composition morphologique agglutinante produit un avantage mesurable en cohérence d'annotation et pouvoir prédictif causal. Le protocole d'évaluation de la Section 4 est conçu pour mesurer cela empiriquement.
 
@@ -527,7 +569,7 @@ La question ouverte centrale distinguant MorphoRepr des Semantic Regexes est de 
 
 ### 7.1 Ce que MorphoRepr peut et ne peut pas exprimer
 
-MorphoRepr capture : les propriétés morpho-syntaxiques (temps, aspect, négation, agentivité, rôle syntaxique), le domaine sémantique large (connaissance, affect, action, espace, relation sociale, données) et la force d'activation (via les coefficients). Il ne capture pas : les features d'entités nommées très spécifiques, les features profondément pragmatiques (ironie, registre, connotation culturelle), les features définis par un contexte textuel spécifique, ou les relations inter-features.
+MorphoRepr capture : les propriétés morpho-syntaxiques (temps, aspect, négation, agentivité, rôle syntaxique), le domaine sémantique large (connaissance, affect, action, espace, relation sociale, données) et, via les coefficients, **soit une confiance d'annotation en mode statique (`γ`), soit une force d'activation normalisée en mode contextualisé (`α`)** (Section 3.2). Il ne capture pas : les features d'entités nommées très spécifiques, les features profondément pragmatiques (ironie, registre, connotation culturelle), les features définis par un contexte textuel spécifique, ou les relations inter-features.
 
 La couverture estimée de 45 à 65 % sur le random set (en attente de validation empirique) signifie qu'une fraction substantielle des latents SAE se situe par conception hors de la portée expressive de MorphoRepr. Ce n'est pas un échec — cela quantifie la frontière entre contenu morpho-sémantique et contextuel-pragmatique dans l'espace de features LLM.
 
@@ -567,7 +609,7 @@ Nous avons proposé MorphoRepr, un langage contrôlé à structure morphologique
 
 Ce papier est un article de positionnement et protocole d'évaluation ; il ne revendique pas de résultats expérimentaux. Le cas théorique en faveur de MorphoRepr repose sur trois observations convergentes : la compositionnalité documentée des espaces d'activation LLM (hypothèse de représentation linéaire), l'analogie structurelle entre la composition additive des termes et la composition additive des latents SAE, et l'insuffisance démontrée des étiquettes en langue naturelle pour les tâches d'interprétabilité systématique. Nous distinguons explicitement ce socle (qui concerne la combinaison additive) du mécanisme agglutinant intra-mot, distinctif mais sans contrepartie dans l'algèbre des activations, dont l'apport doit être démontré par ablation.
 
-La question ouverte centrale n'est pas si MorphoRepr est meilleur que la langue naturelle — il est presque certainement meilleur en cohérence et moins bon en couverture. La question centrale est de savoir s'il est meilleur que les Semantic Regexes, et spécifiquement si la composition agglutinante apporte un avantage mesurable en pouvoir prédictif causal et cohérence d'annotation qui justifie le coût cognitif supplémentaire d'apprendre une nouvelle notation.
+La question centrale n'est pas seulement de savoir si MorphoRepr améliore certains aspects de la langue naturelle — ce que le protocole testera en cohérence et en compacité. L'enjeu principal est plus exigeant : déterminer s'il apporte un avantage mesurable, ou au moins une non-infériorité, face à des baselines structurées fortes comme les Semantic Regexes, et spécifiquement si la composition agglutinante justifie le coût cognitif supplémentaire d'apprendre une nouvelle notation.
 
 MorphoRepr n'est pas une solution pour lire les représentations internes des LLMs ; c'est une hypothèse testable pour l'annotation structurée des latents SAE, évaluée contre des baselines structurées déjà publiées et validées.
 
@@ -593,21 +635,23 @@ Cunningham, H., Ewart, A., Sherburn, L., Tuck, R., & Sharkey, L. (2023). *Sparse
 
 Elhage, N., Hume, T., Olsson, C., Schiefer, N., Henighan, T., Kravec, S., Hatfield-Dodds, Z., Lasenby, R., Drain, D., Chen, C., Grosse, R., McCandlish, S., Kaplan, J., Amodei, D., Wattenberg, M., & Olah, C. (2022). *Toy Models of Superposition*. Transformer Circuits Thread.
 
-Engels, J., Riggs, L., & Tegmark, M. (2024). *Not All Language Model Features Are Linear*. arXiv:2405.14860.
+Engels, J., Liao, I., Michaud, E. J., Gurnee, W., & Tegmark, M. (2024). *Not All Language Model Features Are Linear*. arXiv:2405.14860.
 
 Gao, L., la Tour, T. D., Tillman, H., Goh, G., Troll, R., Radford, A., Sutskever, I., Leike, J., & Wu, J. (2024). *Scaling and evaluating sparse autoencoders*. arXiv:2406.04093.
 
 Han, J., Xu, W., Jin, M., & Du, M. (2025). *SAGE: An Agentic Explainer Framework for Interpreting SAE Features in Language Models*. arXiv:2511.20820.
 
+He, J., Zhao, H., Shi, R., Liu, Y., Wang, X., Sun, F., & Du, M. (2026). *SAEExplainer: Interpreting SAE Features with Activation-Guided Preference Optimization*. arXiv:2606.08496.
+
 Jørgensen, M. G., & Hansen, L. K. (2026). *Steering LLMs? Actually, Sparse Autoencoders can outperform simple baselines*. arXiv:2605.31183.
+
+Jing, Y., Yao, Z., Guo, H., Ran, L., Wang, X., Hou, L., & Li, J. (2025). *LinguaLens: Towards Interpreting Linguistic Mechanisms of Large Language Models via Sparse Auto-Encoder*. EMNLP 2025 (Main Conference). arXiv:2502.20344.
 
 Kim, B., Wattenberg, M., Gilmer, J., Cai, C., Wexler, J., Viegas, F., & Sayres, R. (2018). *Interpretability Beyond Classification Accuracy: Quantifying Interpretability of Machine Learning Models via Concept Activation Vectors (TCAV)*. ICML 2018.
 
 Kuhn, T. (2014). *A Survey and Classification of Controlled Natural Languages*. Computational Linguistics, 40(1), 121–170.
 
 Kumaran, D., Hassabis, D., & McClelland, J. L. (2016). *What learning systems do intelligent agents need? Complementary learning systems theory updated*. Trends in Cognitive Sciences, 20(7), 512–534.
-
-[À confirmer — auteurs à vérifier] *LinguaLens: Towards Interpreting Linguistic Mechanisms of Large Language Models via Sparse Auto-Encoder* (2025). arXiv:2502.20344. *(Cette entrée remplace la référence « Huang et al., SAELing » de la v0.26 : le titre vérifié de arXiv:2502.20344 est « LinguaLens » ; la liste d'auteurs doit être confirmée auprès de la source avant soumission.)*
 
 McClelland, J. L., McNaughton, B. L., & O'Reilly, R. C. (1995). *Why there are complementary learning systems in the hippocampus and neocortex: Insights from the successes and failures of connectionist models of learning and memory*. Psychological Review, 102(3), 419–457.
 
@@ -678,7 +722,7 @@ L'inventaire de la Section 3.3, cette grammaire et le parseur de référence lis
 8. **Désambiguïsation `mal`/`ne` (préfixe vs racine)** : `mal` et `ne` sont analysés comme *racines* lorsqu'aucune autre racine ne les suit avant le suffixe (`mal-o`, `ne-a`), et comme *préfixes* sinon (`mal-emo-a`, `ne-soc-a`, `mal-ne-o` = préfixe `mal` + racine `ne` + suffixe `-o`). Le parse retenu doit être explicitement déclaré par l'encodeur. (Note d'implémentation : un parseur strictement positionnel sans retour arrière ne suffit pas ; la segmentation doit se faire sur les tirets puis classer les segments — les préfixes en tête sans jamais consommer le dernier segment disponible, qui est la racine.)
 9. Un mot se terminant par un suffixe temporel (`-as`, `-is`, `-os`, `-us`, `-u`) est verbal. Un mot se terminant par un suffixe syntaxique (`-o`, `-a`, `-e`, `-i`) est nominal, adjectival, adverbial ou infinitival respectivement. Ces deux familles de suffixes sont mutuellement exclusives au sein d'un même mot.
 
----
+**Note — nombre de termes : grammaire vs protocole.** La production `expression ::= terme ('+' terme)*` autorise un nombre *arbitraire* de termes ; cette généralité est volontaire. Le **protocole expérimental** (et le prompt d'encodage, Annexe B.2) limite en revanche les expressions à **1–4 termes**, pour contrôler la complexité et le coût cognitif et garder les annotations comparables. Cette limite est une contrainte opérationnelle de la couche d'annotation, non une restriction de la grammaire.
 
 ## Annexe B : Gabarits de prompts du pipeline agentique
 
@@ -736,11 +780,19 @@ MorphoRepr is an agglutinative formal language where:
   registered free roots are the only valid roots
 - An expression contains 1-4 terms, ordered by descending coefficient
 
+The CURRENT registered lexicon is provided to you on every call (do NOT invent
+a free root that is not listed; if none fits, propose one only via the
+"could_a_free_root_help" path so it goes through lexicon governance):
+
+  REGISTERED FREE ROOTS:
+  {{REGISTERED_FREE_ROOTS}}   # each item: root | definition | scope | examples
+
 Respond ONLY with a JSON object, no prose, using EXACTLY this schema.
 
 If you can encode the feature with confidence >= 0.50:
 {
   "status": "encoded",
+  "coefficient_type": "confidence",
   "expression": "<full MorphoRepr expression string, e.g. 0.88·mal-o + 0.34·ne-a>",
   "terms": [
     {
@@ -809,7 +861,41 @@ as values.
 
 ---
 
-## Annexe C : Modifications par rapport à la version 0.26
+## Annexe C : Modifications par rapport aux versions antérieures
+
+### C.1 — Modifications v0.27 → v0.28 (relecture critique consolidée)
+
+Cette version répond à une seconde relecture critique. Les changements principaux :
+
+**Références corrigées (vérifiées en ligne).** Correction de la liste d'auteurs d'Engels et al. (2024) — la v0.27 mentionnait par erreur « Riggs » ; auteurs réels : Engels, Liao, Michaud, Gurnee, Tegmark. Remplacement du marqueur « auteurs à confirmer » de LinguaLens par la citation vérifiée (Jing, Yao, Guo, Ran, Wang, Hou, Li, 2025 ; EMNLP 2025, arXiv:2502.20344). Ajout de SAEExplainer (He et al., 2026 ; arXiv:2606.08496) en Section 2.5.
+
+**Score causal primaire reformulé (Sections 4.2, 4.5, abstract).** Le macro-F1 « par feature puis moyenné » (instable, trop peu de propriétés par feature) est remplacé par un **macro-F1 global calculé sur l'ensemble des couples (feature, propriété robuste)**, avec **bootstrap clusterisé par feature** (l'unité de rééchantillonnage reste la feature). Le score par feature est conservé comme métrique secondaire.
+
+**Métrique primaire déterministe (Sections 4.2, abstract).** La comparaison prédiction/observation est désormais effectuée **par code déterministe** entre la direction prédite et la direction mesurée par les classifieurs pré-enregistrés ; **aucun juge LLM** n'intervient dans la métrique primaire. Le juge LLM est réservé aux analyses qualitatives et aux cas ambigus.
+
+**Utilité globale (end-to-end) ajoutée (Sections 4.2, 4.5).** En plus de la performance conditionnelle (sur l'ensemble de features partagé), le protocole rapporte une **utilité globale** sur le random set complet (`couverture × score causal`, ou score intégré avec UNCOVERED = abstention/score nul), afin qu'un avantage conditionnel ne masque pas un désavantage de couverture.
+
+**Random set rendu représentatif (Sections 4.2, 1.1).** Le random set est désormais **échantillonné en premier, uniformément** sur l'ensemble des features (puis retiré du pool avant easy/hard), au lieu d'être pris dans le complément de easy ∪ hard — ce qui en faisait un « middle set ». La disjonction des splits est préservée.
+
+**Critère go/no-go vs Semantic Regexes en non-infériorité (Sections 4.2, 4.5).** Le critère ambigu « différence appariée ≥ 0, IC à 95 % » est remplacé par : **supériorité** vs étiquettes NL (IC de la différence appariée excluant 0) et **non-infériorité** vs Semantic Regexes (borne basse de l'IC > −δ, marge `δ` pré-enregistrée).
+
+**Surclaims adoucis (Sections 3.1, 4.2, 8).** Suppression de « presque certainement meilleur » dans la conclusion ; « sémantique formelle » → « sémantique opérationnellement spécifiée » (le qualificatif « formel » étant réservé à la grammaire) ; « le sens est entièrement déterminé » → « l'interprétation conventionnelle est déterminée » ; la monotonie de la dose-réponse devient « un indice supplémentaire » et non « une preuve ».
+
+**Steering renforcé (Section 4.2).** Métrique primaire sur **50 phrases-sondes** (20 en pilot) avec **plusieurs générations par sonde** et paramètres de génération gelés/rapportés ; **deux familles de sondes** (neutres + compatibles par domaine) ; **critère OOD mixte** (`p99 × τ`, `mean + k·std`, `ε`, `delta_max`) plutôt qu'un simple `p99 × seuil` ; report du **delta d'activation effectivement obtenu** et non seulement de la magnitude visée ; mise en garde sur l'interprétation de la baseline **prompt-only** (contrôle comportemental, non baseline d'annotation, AxBench).
+
+**Étude utilisateur restructurée (Section 4.6).** Séparation en **Tâche A — interprétation** (étude principale, adaptée à la lisibilité) et **Tâche B — production** (secondaire), pour réduire la charge et les effets d'apprentissage inter-systèmes.
+
+**Tableau de littérature rendu plus prudent (Section 6).** Le tableau de notes « élevée/modérée » (contestable, notamment la « validité causale élevée » de la logique du premier ordre) est remplacé par un tableau **objet principal / sortie / évaluation principale**.
+
+**Rechute γ/α corrigée (Section 7.1).** Les coefficients y sont désormais décrits comme « soit confiance d'annotation (`γ`), soit activation normalisée (`α`) », au lieu de « force d'activation ».
+
+**Annexes (A, B).** Annexe A : note explicitant que la grammaire autorise un nombre arbitraire de termes tandis que le protocole limite à 1–4. Annexe B.2 : ajout de `"coefficient_type": "confidence"` dans la sortie JSON et **injection du lexique courant** (racines libres enregistrées + définitions/portée) dans le prompt d'encodage, pour empêcher l'invention de racines hors gouvernance.
+
+**Tableau comparatif ajouté (Section 2.2).** Une même feature annotée selon les quatre systèmes (NL, Semantic Regex, tags, MorphoRepr), à titre illustratif.
+
+**Polish.** Titre anglais raccourci ; « soumis à arXiv / HAL » → « préparé pour soumission » ; harmonisation « description » (NL) vs « annotation » (MorphoRepr) dans les sections révisées.
+
+### C.2 — Modifications v0.26 → v0.27 (rappel)
 
 Cette version intègre une relecture critique consolidée. Les changements principaux :
 
@@ -845,7 +931,7 @@ Cette version intègre une relecture critique consolidée. Les changements princ
 
 ---
 
-*Version 0.27 — Juin 2026*
+*Version 0.28 — Juin 2026*
 *Michaël Launay — michaellaunay@logikascium.com*
 *Logikascium EURL — https://www.logikascium.com*
 *GitHub : https://github.com/michaellaunay/morphorepr*
