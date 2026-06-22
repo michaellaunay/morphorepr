@@ -9,8 +9,8 @@
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 [![Paper: CC BY 4.0](https://img.shields.io/badge/Paper-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Paper v0.28](https://img.shields.io/badge/paper-v0.28-blue.svg)]()
-[![Procedure v6.4.1](https://img.shields.io/badge/test%20procedure-v6.4.1-orange.svg)]()
+[![Paper v0.29](https://img.shields.io/badge/paper-v0.29-blue.svg)]()
+[![Procedure v6.5.3](https://img.shields.io/badge/test%20procedure-v6.5.3-orange.svg)]()
 [![Status: Specification](https://img.shields.io/badge/status-position%20paper%20%2B%20test%20specification-orange.svg)]()
 
 ---
@@ -29,7 +29,9 @@ Read approximately as: *“not having acted physically / action-negation in a pa
 
 MorphoRepr does **not** claim to decode the internal representations of LLMs. It encodes structured, inspectable hypotheses about SAE features. These hypotheses must be evaluated through fidelity tests, activation prediction, and causal intervention experiments on a model where SAE activations are accessible.
 
-The current paper is **v0.28**. The current test procedure is **v6.4.1**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
+The current paper is **v0.29**. The current test procedure is **v6.5.3**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
+
+Starting with paper v0.29 and procedure v6.5.x, the protocol adopts an **open-weight reproducibility policy**: primary scientific claims are designed to be reproducible with open-weight or fully open models, and proprietary models (e.g. Anthropic) are used only as a secondary reference / comparison condition. See [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models).
 
 ---
 
@@ -38,7 +40,8 @@ The current paper is **v0.28**. The current test procedure is **v6.4.1**. The pr
 - [Motivation](#motivation)
 - [Key Concepts](#key-concepts)
 - [Evaluation Protocol](#evaluation-protocol)
-- [Test Procedure v6.4.1](#test-procedure-v641)
+- [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models)
+- [Test Procedure v6.5.3](#test-procedure-v653)
 - [Repository Structure](#repository-structure)
 - [Current Status](#current-status)
 - [Paper](#paper)
@@ -60,7 +63,7 @@ Natural-language feature labels are useful, but they are often vague, inconsiste
 - **Causally evaluable** — the protocol tests whether annotations predict behavioral changes under feature steering.
 - **Honestly bounded** — features that cannot be encoded with sufficient confidence are reported as `UNCOVERED`, rather than forced into misleading labels.
 
-The central research question is whether agglutinative morphological composition provides a measurable advantage over natural-language labels and existing structured annotation approaches, especially Semantic Regexes, in terms of coverage, consistency, compactness, and causal predictive power.
+The central research question is whether agglutinative morphological composition provides a measurable advantage over natural-language labels and existing structured annotation approaches, especially Semantic Regexes, in terms of coverage, consistency, compactness, and causal predictive power. This is stated as a testable hypothesis, not a result.
 
 ---
 
@@ -122,13 +125,23 @@ A central correction in the v6 test procedure is the use of a robust feature ide
 feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}
 ```
 
-`feature_index` alone is not a stable identity: the same index can appear in multiple layers, hooks, SAE releases, or models. In the v6.4.1 procedure, `feature_uid` is the logical key used across agent outputs, baselines, shuffle controls, steering results, batch mappings, and user-study records.
+`feature_index` alone is not a stable identity: the same index can appear in multiple layers, hooks, SAE releases, or models. In the v6.5.3 procedure, `feature_uid` is the logical key used across agent outputs, baselines, shuffle controls, steering results, batch mappings, and user-study records.
+
+### Model-run identity
+
+Because the protocol now runs the same evaluation with several models (an open-weight primary model plus secondary / replication models), outputs are also keyed by the **model that produced them**:
+
+```text
+model_run_id  →  one (provider, model, revision, inference environment) within a run
+```
+
+`model_run_id` is recorded in the `model_runs` table and propagated (as a `NOT NULL` column) to `agent_outputs`, `baselines`, `api_usage`, `batches`, `batch_items`, and `steering_results`, so that multiple models can annotate the same `feature_uid` without collision, costs are attributed per model, and Phase 4 steering only consumes annotations from the intended model.
 
 ---
 
 ## Evaluation Protocol
 
-The v0.28 paper and v6.4.1 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
+The v0.29 paper and v6.5.3 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
 
 ### Feature splits
 
@@ -155,7 +168,7 @@ The primary causal score is not based on an LLM judge. It is deterministic:
 3. pre-registered classifiers measure observed output-property changes;
 4. code compares predicted and observed directions.
 
-The primary score is a **global macro-F1 over all `(feature, robust property)` pairs**, not a per-feature macro-F1 averaged afterward.
+The primary score is a **global macro-F1 over all `(feature, robust property)` pairs**, not a per-feature macro-F1 averaged afterward, with a feature-clustered bootstrap for confidence intervals.
 
 ### Baselines
 
@@ -168,9 +181,11 @@ The planned baselines are:
 
 MorphoRepr is tested for:
 
-- **superiority** against natural-language labels;
+- **superiority** against natural-language labels, via a confidence interval on the feature-clustered paired difference that excludes 0;
 - **non-inferiority** against Semantic Regexes, with a pre-registered margin;
 - end-to-end utility, combining coverage and causal score.
+
+> The earlier “non-overlapping confidence intervals” go/no-go rule is **obsolete**; it was replaced (from paper v0.27 on) by the paired-difference superiority test above plus the non-inferiority margin.
 
 ### End-to-end utility
 
@@ -192,32 +207,73 @@ The planned human evaluation includes:
 
 ---
 
-## Test Procedure v6.4.1
+## Reproducibility and Open-Weight Models
 
-The current test procedure is **v6.4.1**. It is a robust experimental specification, not yet a completed implementation of Phase 4.
+Following a community call for the use of open models in research to guarantee reproducibility, the protocol no longer lets the main scientific conclusions depend on a single proprietary API model.
 
-### What v6.4.1 stabilizes
+### Provider tiers (Rule 11)
 
-The v6.4.1 procedure includes:
+- **Tier A — fully open / reproducible**: weights, tokenizer, inference code, configuration, hyperparameters, license, and (as far as possible) training-data information are documented and archivable.
+- **Tier B — open-weight**: weights and tokenizer are public, but training data or some pre-training details are not fully open; reproducible *computationally* if exact revisions, hashes, and inference parameters are archived.
+- **Tier C — proprietary API**: available only through a proprietary API; usable for comparison, development, or secondary analysis, but never as the sole basis of the main conclusions.
+
+### Policy
+
+- **Primary scientific claims** are computed on a Tier A/B model (the open primary model). Proprietary results (e.g. Anthropic) are reported as a **secondary reference / robustness condition**.
+- A strong claim (e.g. *“MorphoRepr outperforms natural-language labels”*) is admissible only if it holds on the open primary model; otherwise it is phrased *“in the proprietary reference condition.”*
+- Cross-model replication classifies each effect as **model-invariant**, **open-model-only**, **proprietary-only**, or **unstable**.
+- The term “open source” is not applied to a model that only ships its weights without sufficient data/code/configuration; such a model is labeled **open-weight** (anti open-washing). The declared `provider_tier` reflects what is actually available, not vendor marketing.
+
+### Inference abstraction
+
+- Agents go through a common `ModelProvider` interface (`utils/model_provider.py`): `AnthropicProvider` (Tier C), `VLLMProvider`, `TransformersProvider`, `LlamaCppProvider`, with lazy heavy imports and a `build_provider` factory. Agents never instantiate `anthropic.Anthropic()` directly.
+- `utils/api_utils.py` is a **legacy Anthropic Batch API wrapper**: the only place allowed to instantiate the Anthropic client, and only for the Tier C secondary condition.
+- Policy guards (`utils/model_policy.py`): `validate_model_providers` (a full run requires a Tier A/B primary with pinned revisions/hashes/inference environment; Tier C is never primary), `assert_primary_claim_allowed` (the reporter refuses a primary claim from a Tier C model), and `classify_cross_model_effect`.
+
+### Execution modes
+
+- **Dev run**: Anthropic or a small local model; non-scientific results.
+- **Pilot run**: must include at least one open-weight model; Anthropic may be used for comparison.
+- **Full frozen run**: declares a `primary_reproducible` (Tier A/B) model; primary metrics are computed on it; Anthropic results are secondary; if conclusions differ between the open and proprietary models, the paper reports it explicitly.
+
+### Archived artifacts
+
+For each `model_run`, the protocol archives: exact model and tokenizer revisions, weight and tokenizer hashes, the inference image (Docker/Conda, CUDA version, backend version), precision and quantization, generation parameters (temperature, top-p, seed, max tokens), prompts (hashed), and raw outputs.
+
+> Example model names in `model_providers` are illustrative. The full frozen run must pin an exact list of actually available, research-licensed models; any substitution after freezing requires a new `run_id`.
+
+---
+
+## Test Procedure v6.5.3
+
+The current test procedure is **v6.5.3**. It is a robust experimental specification, not yet a completed implementation of Phase 4.
+
+### What v6.5.3 stabilizes
+
+The procedure includes:
 
 - frozen and auditable runs driven by `python orchestrator.py --config configs/run_v1.yaml`;
 - dev, pilot, and full execution modes;
 - Git commit, config, prompt, lexicon, and corpus hashing;
 - raw LLM output archival;
-- crash-safe resume rules;
+- crash-safe resume rules, including restoration of `model_run_ids` from the database on `--resume`;
 - robust `feature_uid` identity across tables and joins;
-- persistent `batch_items` mapping from Batch API `custom_id` to `feature_uid`;
+- model-aware feature selection: `load_features_not_processed` filters by `model_run_id`, so a second model never sees a feature as already processed by the first;
+- persistent `batch_items` mapping from Batch API `custom_id` to `feature_uid`, carrying `model_run_id`;
 - atomic batch registration with `register_batch_with_items`;
 - mandatory `batch_items` for feature-level batches;
 - pre-submission validation that request `custom_id`s match `batch_items` exactly;
+- model-aware batch resume: `get_unconsumed_batch` filters by `model_run_id`, so two models in the same run cannot resume each other’s batch;
 - idempotent and non-silent agent output persistence;
-- non-silent API cost logging with divergence detection;
+- non-silent API cost logging with divergence detection and **per-model** cost attribution;
 - budget estimation before batch submission;
 - a single MorphoRepr parser based on hyphen segmentation;
 - classifier calibration tables and reporting;
 - `magnitude_key` for stable steering-result identity in both relative and absolute magnitude modes;
 - `steering_duplicate_attempts` for audit of divergent steering reruns;
 - `loading` → `running_frozen` run status transition after corpus freezing;
+- a `model_runs` table and an open-weight reproducibility policy (Rule 11), with a legacy `model_run` explicitly created for the single-model path instead of relying on `NULL`;
+- strictly model-aware Phase 4 loading: steering only consumes encoder annotations from the primary `model_run_id`;
 - Phase 4 guards so that dev runs can execute outside steering/scoring.
 
 ### Current Phase 4 status
@@ -228,7 +284,7 @@ The following components are deliberately still contracts:
 - `run_intervention_controls()`;
 - `causal_scorer._load_pairs()`.
 
-They are guarded by `run_in_pipeline` flags and are disabled by default. The v6.4.1 procedure is considered stable for a **dev run of the non-Phase-4 plumbing**, but it does not yet claim causal validation.
+They are guarded by `run_in_pipeline` flags and are disabled by default. The v6.5.3 procedure is considered stable for a **dev run of the non-Phase-4 plumbing**, but it does not yet claim causal validation. The open-weight reproducibility layer is now consistent end to end (schema, feature selection, resume, and Phase 4 loading); the next real milestone is the actual implementation of `steer_feature()` and `causal_scorer._load_pairs()`.
 
 ---
 
@@ -244,7 +300,7 @@ morphorepr-pipeline/
 │   ├── pilot_run.yaml
 │   └── run_v1.yaml
 ├── db/
-│   ├── schema.sql
+│   ├── schema.sql            # includes the model_runs table (v6.5.x)
 │   ├── features.db
 │   └── lexicon.json
 ├── prompts/
@@ -285,7 +341,9 @@ morphorepr-pipeline/
 │   └── shuffled.py
 ├── utils/
 │   ├── db_utils.py
-│   ├── api_utils.py
+│   ├── api_utils.py          # legacy Anthropic Batch API wrapper (Tier C secondary only)
+│   ├── model_provider.py     # ModelProvider abstraction (open primary + Anthropic)
+│   ├── model_policy.py       # Rule 11 guards (tiers, primary-claim, cross-model)
 │   ├── prompt_utils.py
 │   ├── config_utils.py
 │   ├── morphorepr_parser.py
@@ -297,6 +355,9 @@ morphorepr-pipeline/
 │   ├── test_db.py
 │   ├── test_classifiers.py
 │   ├── test_shuffle_baseline.py
+│   ├── test_batch_custom_id.py
+│   ├── test_model_providers.py
+│   ├── test_model_run_propagation.py
 │   └── test_pipeline_e2e.py
 ├── data/
 │   └── probes/
@@ -318,17 +379,20 @@ morphorepr-pipeline/
 
 ## Current Status
 
-This repository accompanies the v0.28 position paper and the v6.4.1 test procedure. No full experimental run has been completed yet.
+This repository accompanies the v0.29 position paper and the v6.5.3 test procedure. No full experimental run has been completed yet.
 
 | Component | Status |
 |-----------|--------|
-| Paper v0.28 | Written / current working version |
-| Test procedure v6.4.1 | Stable for dev plumbing outside Phase 4 |
+| Paper v0.29 | Written / current working version |
+| Test procedure v6.5.3 | Stable for dev plumbing outside Phase 4 |
 | Formal grammar and parser specification | Available |
 | Predefined morpheme inventory | Available |
 | Free-root governance | Specified |
-| SQLite schema | Specified in v6.4.1 |
+| SQLite schema (incl. `model_runs`) | Specified in v6.5.3 |
 | `feature_uid` identity model | Specified and propagated |
+| `model_run_id` multi-model identity | Specified and propagated (NOT NULL) |
+| Open-weight reproducibility policy (Rule 11) | Specified |
+| `ModelProvider` inference abstraction | Specified |
 | Batch API crash-safety design | Specified |
 | Prompt, lexicon, and corpus hashing | Specified |
 | Output property classifiers | Specified |
@@ -347,14 +411,14 @@ This repository accompanies the v0.28 position paper and the v6.4.1 test procedu
 
 ## Paper
 
-> Launay, M. (2026). *MorphoRepr: A Morphologically Structured Controlled Language for SAE Feature Description in LLMs — A Position Paper and Evaluation Protocol*. Version 0.28.
+> Launay, M. (2026). *MorphoRepr: A Morphologically Structured Controlled Language for SAE Feature Description in LLMs — A Position Paper and Evaluation Protocol*. Version 0.29.
 
 - **HAL:** https://hal.science/hal-05649380
 - **arXiv:** https://arxiv.org/abs/2606.XXXXX
-- **PDF:** `docs/paper_v0.28.pdf`
-- **Test procedure:** `docs/morphorepr_test_procedure_v6.4.1.md`
+- **PDF:** `docs/paper_v0.29.pdf`
+- **Test procedure:** `docs/morphorepr_test_procedure_v6.5.3.md`
 
-The v0.28 paper covers:
+The v0.29 paper covers:
 
 - the MorphoRepr grammar and morpheme inventory;
 - the distinction between confidence and activation coefficients;
@@ -364,7 +428,8 @@ The v0.28 paper covers:
 - deterministic causal scoring over feature/property pairs;
 - coverage-aware end-to-end utility;
 - comparison against natural-language labels, Semantic Regexes, keyword tags, and shuffled controls;
-- threats to validity;
+- the open-weight model tiers and reproducibility policy (primary claims on the open model, proprietary results as external comparison);
+- threats to validity, including model-dependence and open-weight-vs-fully-open caveats;
 - human audit and user-study design;
 - future work on model editing and memory consolidation, contingent on causal validation results.
 
@@ -384,7 +449,7 @@ If you use MorphoRepr in your research, please cite:
   eprint       = {2606.XXXXX},
   archivePrefix= {arXiv},
   primaryClass = {cs.CL},
-  note         = {Also available at \url{https://hal.science/hal-05649380}},
+  note         = {Version 0.29. Also available at \url{https://hal.science/hal-05649380}},
   url          = {https://arxiv.org/abs/2606.XXXXX}
 }
 ```

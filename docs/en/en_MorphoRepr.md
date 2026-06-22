@@ -11,10 +11,10 @@ michaellaunay@logikascium.com
 ---
 
 *Preprint — position paper and evaluation protocol — prepared for submission to arXiv cs.CL / HAL*  
-*Version 0.28 — June 2026*  
-*Replaces version 0.27. No experimental results are claimed in this version; results will be reported after the pipeline has been executed.*
+*Version 0.29 — June 2026*  
+*Replaces version 0.28. No experimental results are claimed in this version; results will be reported after the pipeline has been executed.*
 
-**Version note:** this is the long HAL/arXiv version. A shorter workshop version (core concept, main metrics, condensed appendices) is available on request and will be submitted separately to venues focused on interpretability and human-centered AI. The detailed list of changes from version 0.27 appears in Appendix C.
+**Version note:** this is the long HAL/arXiv version. A shorter workshop version (core concept, main metrics, condensed appendices) is available on request and will be submitted separately to venues focused on interpretability and human-centered AI. The detailed list of changes from previous versions appears in Appendix C.
 
 ---
 
@@ -56,7 +56,7 @@ This paper is a **position paper and evaluation protocol**. It presents a formal
 
 To clarify what is and is not claimed, the following table aligns each claim with its status in the present version and the planned evidence for testing it.
 
-| Claim | Status (v0.28) | Planned evidence |
+| Claim | Status (v0.29) | Planned evidence |
 |------|----------------|------------------|
 | MorphoRepr is more compact than NL labels | Hypothesis | length / entropy / user study |
 | MorphoRepr is more consistent than NL labels | Hypothesis | Jaccard over two runs |
@@ -536,6 +536,18 @@ To isolate the contribution of MorphoRepr’s distinctive components — especia
 
 ---
 
+### 4.8 Open-model policy and reproducibility
+
+The agentic and judging tasks in the pipeline may be executed with different model providers. To make the conclusions reproducible and auditable by other laboratories, the protocol distinguishes three **provider tiers** and requires the main conclusions to rely on an open model.
+
+- **Tier A — fully open / reproducible**: weights, tokenizer, inference code, configuration, hyperparameters, license and, as far as possible, training-data information are documented and archivable.
+- **Tier B — open-weight**: weights and tokenizer are public, but training data or some pretraining details are only partially open; such models are **computationally reproducible** if exact revisions, hashes and inference parameters are archived.
+- **Tier C — proprietary API**: access is available only through a proprietary API; such models may be used for comparison, development or secondary analysis, but never as the sole basis for the main conclusions.
+
+**Rationale.** A model available only through an API may be updated, deprecated or withdrawn without access to its weights, tokenizer, data or internal parameters. A conclusion that exists only behind such an API is not independently verifiable or replayable over time. MorphoRepr's **primary claims** are therefore computed on a **Tier A or Tier B model** (the open primary model), while proprietary results (e.g. the Claude family) are reported as an **external comparison / secondary robustness condition**. A strong statement such as “MorphoRepr outperforms natural-language labels” is admissible only if it holds on the open primary model; if it holds only on a proprietary model, it is explicitly reformulated as “in the proprietary reference condition”. When several open models are executed for cross-model replication, each effect is classified as *model-invariant*, *open-model-only*, *proprietary-only*, or *unstable*.
+
+**Archiving.** For every model execution, the protocol archives the exact model and tokenizer revision, weight and tokenizer hashes, the inference image (Docker/Conda, CUDA version, backend version), precision and quantization, generation parameters (temperature, top-p, seed, length), hashed prompts and raw outputs. The distinction between open-source, open-weight and proprietary is declared explicitly: a model that publishes only its weights is called *open-weight*, not *open source*, to avoid open-washing. The associated evaluation protocol implements this policy through the `model_runs` table, guards that prevent a Tier C model from supporting a primary claim, and a requirement to provide archival artifacts before a full run.
+
 ## 5. Research agenda
 
 *This section sketches longer-term research directions conditional on the experimental results from Section 4. It is not a contribution of the present paper.*
@@ -864,6 +876,15 @@ as values.
 
 ## Appendix C: Changes from previous versions
 
+### C.2 — Changes v0.28 → v0.29 (open-model policy)
+
+This version adds an **open-model reproducibility policy**, in response to calls from parts of the scientific community to prioritize open-source or open-weight models in research in order to guarantee reproducibility of results. Changes:
+
+- **Methods — new Section 4.8 (Open-model policy and reproducibility).** Introduction of three provider tiers (A fully open / B open-weight / C proprietary API), with the rule that **primary claims** are computed on a **Tier A/B model** (the open primary model), while proprietary results (Claude family) are an **external comparison / secondary condition**. A strong claim is admissible only on the open primary model; otherwise it is reformulated as “in the proprietary reference condition”. Cross-model replication and effect classification are added (model-invariant / open-model-only / proprietary-only / unstable). The archival policy covers revisions, hashes, inference image, dtype/quantization, generation parameters, prompts and raw outputs, with an explicit open-source / open-weight distinction to avoid open-washing.
+- **External validity threats (Section 7.4) enriched.** Open-weight is not the same as fully open; results may depend on the model used; proprietary models may change without full access; local models may vary with backend, dtype, quantization and hardware.
+- **Associated evaluation protocol.** The policy is implemented through the `model_runs` table, propagation of `model_run_id` to outputs and metrics, guards that prevent a primary claim from relying on a Tier C model, required artifacts before the full run, and an extended freeze checklist. See test procedure v6.5.x (≥ v6.5.3).
+- **Compatibility.** The proprietary condition remains available as a reference/robustness condition; no experimental results are claimed; the “position paper and protocol” status is unchanged.
+
 ### C.1 — Changes v0.27 → v0.28 (consolidated critical review)
 
 This version responds to a second critical review. Main changes:
@@ -896,7 +917,7 @@ This version responds to a second critical review. Main changes:
 
 **Polish.** English title shortened; “submitted to arXiv / HAL” → “prepared for submission”; harmonized “description” (NL) vs “annotation” (MorphoRepr) in revised sections.
 
-### C.2 — Changes v0.26 → v0.27 (recap)
+### C.3 — Changes v0.26 → v0.27 (recap)
 
 This version incorporates a consolidated critical review. Main changes:
 
@@ -932,7 +953,7 @@ This version incorporates a consolidated critical review. Main changes:
 
 ---
 
-*Version 0.28 — June 2026*  
+*Version 0.29 — June 2026*  
 *Michaël Launay — michaellaunay@logikascium.com*  
 *Logikascium EURL — https://www.logikascium.com*  
 *GitHub: https://github.com/michaellaunay/morphorepr*

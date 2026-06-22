@@ -1,7 +1,7 @@
-# MorphoRepr — Procédure de test complète (v6.4.1)
+# MorphoRepr — Procédure de test complète (v6.5.3)
 ## Infrastructure expérimentale robuste pour une évaluation reproductible
 
-*Version 6.4.1 — Juin 2026. Cohérente avec l'article v0.28. Micro-patch : pré-vérification avant soumission que les `custom_id` des requêtes correspondent EXACTEMENT aux `batch_items`, et clarification de `assert_steering_ready` comme garde PRÉ-PILOT Phase 4 (non bloquante pour un dev run de plomberie hors steering) — voir Section 19. La v6.4.1 reste une SPÉCIFICATION : `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` sont des contrats non implémentés (gardes `run_in_pipeline`). Elle est jugée solide pour un dev run de plomberie hors Phase 4.*
+*Version 6.5.3 — Juin 2026. Cohérente avec l'article (≥ v0.29). Correctif d'une dernière fuite multi-modèle en Phase 4 : `steerer.run()` rendu strictement model-aware (la requête de chargement des sorties `encoder` filtre désormais sur `ao.model_run_id`, voir Section 23). Aucune modification de schéma. Compatible v6.5.x : `AnthropicProvider` conservé, Phase 4 toujours désactivée. La v6.5.3 reste une SPÉCIFICATION : `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` sont des contrats non implémentés (gardes `run_in_pipeline`).*
 
 ---
 
@@ -43,6 +43,60 @@ La comparaison prédiction/observation de la métrique primaire est **détermini
 
 **Règle 10 — Identité de feature robuste**
 Un `feature_index` seul ne suffit pas : le même index peut exister dans plusieurs couches, releases SAE ou modèles. L'identité canonique est `feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}`, avec contrainte d'unicité. Au sein d'un run unique (un modèle, une release, un ensemble de couches), `feature_index` reste un identifiant pratique pour les jointures ; `feature_uid` garantit l'unicité cross-couche/cross-SAE et est propagé aux tables aval.
+
+**Règle 11 — Reproductibilité par modèles ouverts**
+Les conclusions scientifiques principales ne doivent pas dépendre uniquement d'un modèle propriétaire accessible par API. Le protocole distingue trois tiers de fournisseurs :
+
+1. **Tier A — Fully open / reproducible model.** Poids, tokenizer, code d'inférence, configuration, hyperparamètres, licence et (autant que possible) informations sur les données d'entraînement sont documentés et archivables.
+2. **Tier B — Open-weight model.** Poids et tokenizer publiquement disponibles, mais données ou certains détails de pré-entraînement non entièrement ouverts. Acceptable pour la **reproductibilité computationnelle** si les révisions exactes, hashes et paramètres d'inférence sont archivés.
+3. **Tier C — Proprietary API model.** Accessible uniquement par API propriétaire. Utilisable pour **comparaison, développement, annotation assistée ou analyse secondaire**, mais **jamais comme seule base des conclusions principales**.
+
+**Règle** : toute conclusion principale du papier doit être rapportée **au minimum sur un modèle Tier A ou Tier B**. Les résultats Anthropic (ou tout autre fournisseur propriétaire) sont présentés comme résultats **secondaires, de robustesse ou de comparaison externe**. Une affirmation forte (ex. « MorphoRepr outperforms natural language labels ») n'est admissible que si elle est vraie sur le **modèle primaire open-weight** ; si elle ne vaut que sur un modèle propriétaire, elle doit être reformulée en « in the proprietary reference condition ». Les agents ne doivent **jamais** instancier `anthropic.Anthropic()` directement : ils dépendent de l'abstraction `ModelProvider` (Section 5 bis) afin que le même protocole tourne avec Anthropic **ou** un modèle local.
+
+**Règle 11 bis — Liste de modèles gelée par run.** Les noms de modèles donnés en exemple dans `model_providers` ne sont qu'illustratifs. Le **full frozen run** doit figer une liste **exacte** de modèles réellement disponibles, compatibles avec la licence de recherche et exécutables par le laboratoire. Toute substitution de modèle après le gel exige un **nouveau `run_id`**.
+
+---
+
+## Politique d'ouverture des modèles et reproductibilité (Model openness and reproducibility policy)
+
+**Pourquoi un modèle propriétaire seul ne suffit pas.** Un modèle accessible uniquement par API peut être mis à jour, déprécié ou retiré sans préavis, sans accès aux poids, au tokenizer, aux données ni aux paramètres internes. Une conclusion scientifique qui n'existe que derrière une telle API n'est pas vérifiable indépendamment ni rejouable dans le temps : elle dépend d'un artefact non archivable. La reproductibilité exige donc qu'au moins une condition repose sur un modèle dont l'artefact exact peut être figé et redistribué.
+
+**Pourquoi les résultats primaires doivent venir d'un modèle ouvert.** Pour qu'un autre laboratoire puisse rejouer l'expérience et obtenir (aux variations matérielles près) les mêmes nombres, il faut un modèle dont la révision, le tokenizer, le backend et les paramètres d'inférence sont connus et archivés. Les **claims primaires** de MorphoRepr sont donc calculés sur un modèle **Tier A (fully open)** ou **Tier B (open-weight)** ; les résultats propriétaires servent de **comparaison externe**.
+
+**Distinguer open-source, open-weight et proprietary API.**
+- *Open-source / fully open (Tier A)* : poids + tokenizer + code d'inférence + config + hyperparamètres + licence + (idéalement) infos données. Reproductible au sens le plus fort.
+- *Open-weight (Tier B)* : poids + tokenizer publics, mais données/pré-entraînement partiellement fermés. Reproductible **computationnellement** (mêmes poids → mêmes sorties à backend/seed fixés), pas nécessairement scientifiquement transparent sur l'origine.
+- *Proprietary API (Tier C)* : ni poids ni tokenizer ; comportement potentiellement variable. Comparaison/secondaire uniquement.
+
+**Reporter séparément Tier A/B et Tier C.** Les métriques sont rapportées **par modèle et par tier** (Section de reporting). Le tableau principal oppose explicitement le modèle ouvert primaire au modèle propriétaire secondaire, avec la différence et son interprétation. On ne fusionne jamais un score Tier C dans un score « primaire ».
+
+**Éviter l'open-washing.** On n'appelle **pas** « open source » un modèle qui ne fournit que les poids sans données, code ou configuration suffisants : un tel modèle est *open-weight* (Tier B), et désigné comme tel. Le tier déclaré dans `model_runs.provider_tier` doit refléter ce qui est réellement disponible, pas le marketing du fournisseur.
+
+**Artefacts à archiver pour la reproduction.** Pour chaque `model_run` : révision exacte du modèle et du tokenizer, `weights_sha256`, `tokenizer_sha256`, image Docker/Conda (`inference_env_hash`), version CUDA, version du backend, `precision`/`quantization`, paramètres d'inférence (`generation_params_json` : température, top_p, seed, max_new_tokens), prompts (hashés, Règle 3) et **sorties brutes**. Sans ces artefacts, un run ne peut pas prétendre à la reproductibilité et ne peut pas porter de claim primaire (garde `validate_model_providers`, Section 5 bis).
+
+**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.5.1**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
+
+```markdown
+## MorphoRepr — état du dépôt
+- Article : v0.29 (politique de modèles ouverts ; claims primaires sur modèle ouvert).
+- Procédure de test : v6.5.3 (propagation multi-modèle complète, Phase 4 incluse).
+- Critère de validité causale : supériorité vs étiquettes NL (IC de la différence appariée,
+  clusterisé par feature, excluant 0) ET non-infériorité vs Semantic Regexes (marge δ
+  pré-enregistrée). NB : l'ancien critère « IC non chevauchants » est OBSOLÈTE.
+
+## Reproducibility and open-weight models
+- MorphoRepr may use proprietary models (e.g. Anthropic) for development and secondary comparison.
+- Primary scientific claims are designed to be reproducible with open-weight or fully open models.
+- The protocol archives exact model revisions, hashes, inference backends, prompts, configurations,
+  and raw outputs (table `model_runs` + `model_run_id` propagated to batches/outputs/baselines/
+  api_usage/steering_results; aggregated metrics may be cross-model).
+- Inference goes through `ModelProvider` (open primary model); `api_utils` is a LEGACY Anthropic
+  Batch wrapper for the Tier C secondary condition only.
+- Anthropic results are reported as a secondary reference condition unless explicitly reproduced
+  by an open-weight model. Strong claims ("MorphoRepr outperforms NL labels") require the open
+  primary model; otherwise they are phrased "in the proprietary reference condition".
+- Primary claims are restricted to Tier A/B models (guard `assert_primary_claim_allowed`).
+```
 
 ---
 
@@ -133,7 +187,7 @@ morphorepr-pipeline/
 # configs/run_v1.yaml
 
 run_id_prefix: "morphorepr_v1"
-description: "Full frozen run MorphoRepr v0.28 — 500 features"
+description: "Full frozen run MorphoRepr v0.29 / procedure v6.5.3 — 500 features"
 
 # Reproductibilité
 git_commit: "FILL_BEFORE_LAUNCH"    # vérifié contre le HEAD Git réel à l'init
@@ -149,13 +203,71 @@ sampling:
   use_temperature: false
   temperature: null
 
-# Modèles (identifiants exacts API Anthropic)
+# Modèles (identifiants exacts API Anthropic) — conservés pour la condition propriétaire
+# SECONDAIRE et les outils d'assistance. NE PAS utiliser comme seule base des claims primaires.
 models:
   semantic_judgment: "claude-sonnet-4-6"
   scoring: "claude-haiku-4-5-20251001"
   batch: true
   max_tokens_judgment: 800
   max_tokens_scoring: 400
+
+# ─────────────────────────────────────────────
+# Reproductibilité par modèles ouverts (Règle 11). Les agents passent par ModelProvider
+# (Section 5 bis), jamais par anthropic.Anthropic() directement. Les claims PRIMAIRES sont
+# calculés sur primary_reproducible (Tier A/B) ; Anthropic est SECONDAIRE.
+# NB : les model_name ci-dessous sont des EXEMPLES (Règle 11 bis) ; le full frozen run doit
+# figer une liste exacte de modèles réellement disponibles et licenciés pour la recherche.
+# ─────────────────────────────────────────────
+model_providers:
+  primary_reproducible:
+    tier: "B_open_weight"
+    provider: "local"
+    backend: "vllm"                 # "vllm" | "transformers" | "llama_cpp"
+    model_name: "Qwen/Qwen3-8B-Instruct"
+    model_revision: "FILL_EXACT_HF_REVISION"
+    tokenizer_revision: "FILL_EXACT_HF_REVISION"
+    weights_sha256: "FILL_BEFORE_FULL_RUN"
+    tokenizer_sha256: "FILL_BEFORE_FULL_RUN"
+    license: "FILL"
+    precision: "bfloat16"
+    quantization: null
+    inference_container_hash: "FILL_BEFORE_FULL_RUN"
+    deterministic_generation:
+      temperature: 0.0
+      top_p: 1.0
+      seed: 42
+      max_new_tokens: 512
+
+  secondary_proprietary:
+    tier: "C_proprietary_api"
+    provider: "anthropic"
+    model_name: "claude-sonnet-4-6"
+    api_version: "FILL"
+    role: "secondary_reference"
+    use_for_primary_claims: false
+
+  optional_cross_model_replication:
+    enabled: true
+    models:
+      - provider: "local"
+        tier: "B_open_weight"
+        backend: "vllm"
+        model_name: "mistralai/Mistral-7B-Instruct-v0.3"
+        model_revision: "FILL"
+        role: "replication"
+      - provider: "local"
+        tier: "B_open_weight"
+        backend: "vllm"
+        model_name: "meta-llama/Llama-3.1-8B-Instruct"
+        model_revision: "FILL"
+        role: "replication"
+      - provider: "local"
+        tier: "A_or_B_open"
+        backend: "transformers"
+        model_name: "allenai/OLMo-2-1124-7B-Instruct"
+        model_revision: "FILL"
+        role: "replication"
 
 # Prompts
 prompts:
@@ -338,10 +450,10 @@ seed: 42
 
 ---
 
-## 3. Schéma SQLite complet (v6.4.1)
+## 3. Schéma SQLite complet (v6.5.3)
 
 ```sql
--- db/schema.sql  —  Version 6.4.1, ne jamais modifier après le full run
+-- db/schema.sql  —  Version 6.5.3, ne jamais modifier après le full run
 
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -374,12 +486,36 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 
 -- ─────────────────────────────────────────────
--- Suivi des batchs (reprise après crash)
+-- Exécutions de modèles (Règle 11) : un model_run = un fournisseur/modèle/révision/env donné,
+-- rattaché à un run. Permet d'exécuter et comparer plusieurs modèles sur les mêmes features et
+-- d'archiver tous les artefacts de reproduction. is_primary_scientific=1 marque le modèle
+-- ouvert primaire ; use_for_primary_claims contrôle l'admissibilité aux claims principaux.
 -- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS model_runs (
+    model_run_id           TEXT PRIMARY KEY,
+    run_id                 TEXT NOT NULL REFERENCES runs(run_id),
+    provider_name          TEXT NOT NULL,
+    provider_tier          TEXT NOT NULL,  -- A_fully_open | B_open_weight | C_proprietary_api
+    backend                TEXT,           -- vllm | transformers | llama_cpp | anthropic_api | other
+    model_name             TEXT NOT NULL,
+    model_revision         TEXT,
+    tokenizer_revision     TEXT,
+    weights_sha256         TEXT,
+    tokenizer_sha256       TEXT,
+    inference_env_hash     TEXT,
+    precision              TEXT,
+    quantization           TEXT,
+    license                TEXT,
+    is_primary_scientific  INTEGER NOT NULL DEFAULT 0,
+    use_for_primary_claims INTEGER NOT NULL DEFAULT 0,
+    generation_params_json TEXT NOT NULL,
+    created_at             TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS batches (
     batch_id        TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id    TEXT NOT NULL REFERENCES model_runs(model_run_id),  -- modèle du batch (Règle 11)
     phase           TEXT NOT NULL,
     agent_name      TEXT NOT NULL,
     run_number      INTEGER NOT NULL DEFAULT 1,
@@ -398,6 +534,7 @@ CREATE TABLE IF NOT EXISTS batch_items (
     custom_id       TEXT NOT NULL,
     feature_uid     TEXT NOT NULL REFERENCES features(feature_uid),
     feature_index   INTEGER NOT NULL,
+    model_run_id    TEXT NOT NULL REFERENCES model_runs(model_run_id),  -- batch propre à un modèle (Règle 11)
     PRIMARY KEY(batch_id, custom_id)
 );
 
@@ -452,6 +589,7 @@ CREATE TABLE IF NOT EXISTS features (
 CREATE TABLE IF NOT EXISTS agent_outputs (
     output_id       TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id    TEXT NOT NULL REFERENCES model_runs(model_run_id),  -- modèle ayant produit la sortie (Règle 11)
     feature_uid     TEXT NOT NULL REFERENCES features(feature_uid),  -- IDENTITÉ LOGIQUE (Règle 10)
     feature_index   INTEGER NOT NULL,                       -- informatif (index dans le SAE)
     agent_name      TEXT NOT NULL,
@@ -466,9 +604,11 @@ CREATE TABLE IF NOT EXISTS agent_outputs (
     cost_usd        REAL,
     coefficient_type TEXT DEFAULT 'confidence',
     created_at      TEXT NOT NULL,
-    -- Unicité sur feature_uid (PAS feature_index, ambigu entre couches/SAEs — Règle 10).
-    -- Combinée à la vérification de divergence dans save_agent_output(), rend la persistance idempotente.
-    UNIQUE(run_id, feature_uid, agent_name, run_number)
+    -- Unicité sur (model_run_id, feature_uid) : plusieurs modèles peuvent annoter le même
+    -- feature sans s'écraser (Règle 11). feature_uid (PAS feature_index) reste l'identité
+    -- logique (Règle 10). La vérification de divergence dans save_agent_output() (qui inclut
+    -- model_run_id via IS) rend la persistance idempotente même quand model_run_id est NULL.
+    UNIQUE(run_id, model_run_id, feature_uid, agent_name, run_number)
 );
 
 -- ─────────────────────────────────────────────
@@ -478,6 +618,8 @@ CREATE TABLE IF NOT EXISTS agent_outputs (
 CREATE TABLE IF NOT EXISTS metrics (
     metric_id       TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id    TEXT REFERENCES model_runs(model_run_id),  -- modèle de la métrique ; NULL = métrique
+                                      -- AGRÉGÉE / cross-modèle (stabilité inter-modèles, etc.)
     phase           TEXT NOT NULL,
     split           TEXT NOT NULL,
     metric_name     TEXT NOT NULL,
@@ -496,6 +638,7 @@ CREATE TABLE IF NOT EXISTS metrics (
 CREATE TABLE IF NOT EXISTS baselines (
     baseline_id     TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id    TEXT NOT NULL REFERENCES model_runs(model_run_id),  -- modèle de la baseline (Règle 11)
     feature_uid     TEXT NOT NULL REFERENCES features(feature_uid),  -- IDENTITÉ LOGIQUE
     feature_index   INTEGER NOT NULL,                       -- informatif
     baseline_name   TEXT NOT NULL,
@@ -505,7 +648,7 @@ CREATE TABLE IF NOT EXISTS baselines (
     causal_score    REAL,
     causal_outcome  TEXT,
     created_at      TEXT NOT NULL,
-    UNIQUE(run_id, feature_uid, baseline_name)
+    UNIQUE(run_id, model_run_id, feature_uid, baseline_name)
 );
 
 -- ─────────────────────────────────────────────
@@ -541,6 +684,7 @@ CREATE TABLE IF NOT EXISTS shuffle_controls (
 CREATE TABLE IF NOT EXISTS steering_results (
     result_id           TEXT PRIMARY KEY,
     run_id              TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id        TEXT NOT NULL REFERENCES model_runs(model_run_id),  -- modèle du steering (Règle 11)
     feature_uid         TEXT NOT NULL REFERENCES features(feature_uid),  -- IDENTITÉ LOGIQUE
     feature_index       INTEGER NOT NULL,                                -- informatif
     intervention_space  TEXT,            -- 'residual_add_decoder' | 'sae_latent_clamp'
@@ -569,7 +713,7 @@ CREATE TABLE IF NOT EXISTS steering_results (
     -- collisions entre catégories qui réinitialisent probe_id). La stochasticité du steering
     -- est compatible avec l'archivage "gelé et auditable" : à la reprise, on conserve la
     -- 1ʳᵉ sortie et toute divergence est journalisée (table steering_duplicate_attempts).
-    UNIQUE(run_id, feature_uid, intervention_space, magnitude_key,
+    UNIQUE(run_id, model_run_id, feature_uid, intervention_space, magnitude_key,
            probe_family, probe_category, probe_id, generation_index)
 );
 
@@ -601,6 +745,7 @@ CREATE TABLE IF NOT EXISTS steering_duplicate_attempts (
 CREATE TABLE IF NOT EXISTS api_usage (
     call_id         TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id    TEXT NOT NULL REFERENCES model_runs(model_run_id),  -- coût/compute attribué à un modèle
     phase           TEXT NOT NULL,
     agent_name      TEXT NOT NULL,
     model           TEXT NOT NULL,
@@ -610,10 +755,10 @@ CREATE TABLE IF NOT EXISTS api_usage (
     cost_usd        REAL NOT NULL,
     cumulative_cost REAL,
     timestamp       TEXT NOT NULL,
-    -- Idempotence du coût par batch : à la reprise, un coût déjà loggé pour ce
-    -- (run, batch, phase, agent) n'est PAS recompté (log_api_cost en INSERT OR IGNORE).
-    -- NB : SQLite autorise plusieurs NULL ; les appels non-batch (batch_id NULL) ne sont pas dédoublonnés ici.
-    UNIQUE(run_id, batch_id, phase, agent_name)
+    -- Idempotence du coût par (modèle, batch) : à la reprise, un coût déjà loggé pour ce
+    -- (run, model_run, batch, phase, agent) n'est PAS recompté (log_api_cost en INSERT OR IGNORE).
+    -- L'inclusion de model_run_id attribue correctement les coûts par modèle (objectif v6.5).
+    UNIQUE(run_id, model_run_id, batch_id, phase, agent_name)
 );
 
 -- ─────────────────────────────────────────────
@@ -993,16 +1138,21 @@ def load_features(split: Optional[str] = None) -> list[dict]:
 def load_features_not_processed(run_id: str,
                                  agent_name: str,
                                  run_number: int,
+                                 model_run_id: Optional[str] = None,
                                  split: Optional[str] = None) -> list[dict]:
-    """Retourne les features sans output pour cet agent/run_number. Idempotent.
-    Clé logique : feature_uid (Règle 10), pas feature_index."""
+    """Retourne les features sans output pour cet agent/run_number ET CE MODÈLE. Idempotent.
+    Clés logiques : feature_uid (Règle 10) + model_run_id (Règle 11). SANS le filtre modèle,
+    un 2ᵉ modèle (réplication/secondaire) croirait toutes les features déjà traitées par le
+    1ᵉʳ. model_run_id par défaut = model_run legacy explicite (chemin mono-modèle)."""
+    if model_run_id is None:
+        model_run_id = ensure_legacy_model_run(run_id)
     with get_conn() as conn:
         done = {
             r["feature_uid"]
             for r in conn.execute("""
                 SELECT feature_uid FROM agent_outputs
-                WHERE run_id = ? AND agent_name = ? AND run_number = ?
-            """, (run_id, agent_name, run_number)).fetchall()
+                WHERE run_id = ? AND model_run_id = ? AND agent_name = ? AND run_number = ?
+            """, (run_id, model_run_id, agent_name, run_number)).fetchall()
         }
         q = "SELECT * FROM features WHERE 1=1"
         p = []
@@ -1033,22 +1183,26 @@ def save_agent_output(run_id: str,
                       batch_id: Optional[str],
                       cost_usd: float,
                       coefficient_type: str = "confidence",
-                      feature_uid: Optional[str] = None):
+                      feature_uid: Optional[str] = None,
+                      model_run_id: Optional[str] = None):
     """Persistance idempotente MAIS NON SILENCIEUSE en cas de divergence.
-    Clé logique : feature_uid (Règle 10), REQUIS.
+    Clés logiques : feature_uid (Règle 10, REQUIS) + model_run_id (Règle 11, modèle producteur).
 
-    - Si aucune sortie n'existe pour (run_id, feature_uid, agent_name, run_number) → INSERT.
+    - Si aucune sortie n'existe pour (run_id, model_run_id, feature_uid, agent_name, run_number) → INSERT.
     - Si une sortie IDENTIQUE existe (même output_json, raw_output, status) → ignorer (reprise).
     - Si une sortie DIFFÉRENTE existe → RuntimeError (ne pas masquer une divergence).
-    Évite le piège du INSERT OR IGNORE qui avale silencieusement une sortie différente."""
+    Évite le piège du INSERT OR IGNORE qui avale silencieusement une sortie différente.
+    NB : model_run_id peut être NULL (chemin legacy mono-modèle) ; la comparaison utilise IS."""
     if feature_uid is None:
         raise ValueError("save_agent_output : feature_uid est requis (identité logique, Règle 10).")
+    if model_run_id is None:
+        model_run_id = ensure_legacy_model_run(run_id)   # colonne NOT NULL : jamais de NULL (Règle 11)
     new_json = json.dumps(output_json) if output_json is not None else None
     with get_conn() as conn:
         existing = conn.execute("""
             SELECT output_json, raw_output, status FROM agent_outputs
-            WHERE run_id=? AND feature_uid=? AND agent_name=? AND run_number=?
-        """, (run_id, feature_uid, agent_name, run_number)).fetchone()
+            WHERE run_id=? AND model_run_id=? AND feature_uid=? AND agent_name=? AND run_number=?
+        """, (run_id, model_run_id, feature_uid, agent_name, run_number)).fetchone()
         if existing is not None:
             same = (existing["output_json"] == new_json
                     and existing["raw_output"] == raw_output
@@ -1056,19 +1210,19 @@ def save_agent_output(run_id: str,
             if same:
                 return                       # reprise idempotente
             raise RuntimeError(
-                f"Divergence de sortie pour (run={run_id}, feature_uid={feature_uid}, "
-                f"agent={agent_name}, run_number={run_number}) : une sortie DIFFÉRENTE "
-                f"est déjà persistée. Run bloqué (ne pas écraser silencieusement)."
+                f"Divergence de sortie pour (run={run_id}, model_run={model_run_id}, "
+                f"feature_uid={feature_uid}, agent={agent_name}, run_number={run_number}) : "
+                f"une sortie DIFFÉRENTE est déjà persistée. Run bloqué (ne pas écraser silencieusement)."
             )
         conn.execute("""
             INSERT INTO agent_outputs (
-                output_id, run_id, feature_uid, feature_index, agent_name, run_number,
+                output_id, run_id, model_run_id, feature_uid, feature_index, agent_name, run_number,
                 output_json, raw_output, status, error_msg,
                 tokens_input, tokens_output, batch_id, cost_usd,
                 coefficient_type, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            str(uuid4()), run_id, feature_uid, feature_index, agent_name, run_number,
+            str(uuid4()), run_id, model_run_id, feature_uid, feature_index, agent_name, run_number,
             new_json, raw_output, status, error_msg,
             tokens_input, tokens_output, batch_id, cost_usd,
             coefficient_type,
@@ -1077,36 +1231,48 @@ def save_agent_output(run_id: str,
 
 
 def register_batch(batch_id: str, run_id: str, phase: str,
-                   agent_name: str, run_number: int, n_requests: int):
+                   agent_name: str, run_number: int, n_requests: int,
+                   model_run_id: Optional[str] = None):
+    if model_run_id is None:
+        model_run_id = ensure_legacy_model_run(run_id)
     with get_conn() as conn:
         conn.execute("""
             INSERT INTO batches (
-                batch_id, run_id, phase, agent_name, run_number,
+                batch_id, run_id, model_run_id, phase, agent_name, run_number,
                 n_requests, status, submitted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?)
-        """, (batch_id, run_id, phase, agent_name, run_number,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'submitted', ?)
+        """, (batch_id, run_id, model_run_id, phase, agent_name, run_number,
               n_requests, datetime.utcnow().isoformat()))
 
 
 def register_batch_with_items(batch_id: str, run_id: str, phase: str,
                               agent_name: str, run_number: int, n_requests: int,
-                              items: list[dict]):
+                              items: list[dict], model_run_id: Optional[str] = None):
     """Enregistre le batch ET son mapping custom_id → feature_uid dans UNE SEULE transaction
     (crash-safe : pas de fenêtre où le batch existe sans sa map). items : [{custom_id,
-    feature_uid, feature_index}, …]. Idempotent côté items (INSERT OR IGNORE)."""
+    feature_uid, feature_index, model_run_id?}, …]. model_run_id (paramètre) est la valeur
+    par défaut des items qui n'en portent pas. Idempotent côté items (INSERT OR IGNORE)."""
+    if model_run_id is None:
+        model_run_id = ensure_legacy_model_run(run_id)
     with get_conn() as conn:
         conn.execute("""
             INSERT INTO batches (
-                batch_id, run_id, phase, agent_name, run_number,
+                batch_id, run_id, model_run_id, phase, agent_name, run_number,
                 n_requests, status, submitted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?)
-        """, (batch_id, run_id, phase, agent_name, run_number,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'submitted', ?)
+        """, (batch_id, run_id, model_run_id, phase, agent_name, run_number,
               n_requests, datetime.utcnow().isoformat()))
         for it in items:
+            # Fallback CORRECT : it.get(k, default) renvoie None si la clé existe AVEC None
+            # (cas de build_batch_item_rows(features) sans model_run_id). On utilise `or` pour
+            # retomber sur le model_run_id du batch, sinon batch_items (NOT NULL) insérerait NULL.
+            item_model_run_id = it.get("model_run_id") or model_run_id
             conn.execute("""
-                INSERT OR IGNORE INTO batch_items (batch_id, custom_id, feature_uid, feature_index)
-                VALUES (?, ?, ?, ?)
-            """, (batch_id, it["custom_id"], it["feature_uid"], it["feature_index"]))
+                INSERT OR IGNORE INTO batch_items (batch_id, custom_id, feature_uid,
+                                                   feature_index, model_run_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (batch_id, it["custom_id"], it["feature_uid"], it["feature_index"],
+                  item_model_run_id))
 
 
 def mark_batch_consumed(batch_id: str):
@@ -1117,76 +1283,197 @@ def mark_batch_consumed(batch_id: str):
         """, (datetime.utcnow().isoformat(), batch_id))
 
 
-def save_batch_items(batch_id: str, items: list[dict]):
-    """Persiste la correspondance custom_id → feature_uid d'un batch (table batch_items),
-    pour une reprise crash-safe. items : [{custom_id, feature_uid, feature_index}, …].
-    Idempotent (INSERT OR IGNORE) : un re-soumission/re-poll ne duplique pas."""
+def save_batch_items(batch_id: str, items: list[dict], model_run_id: Optional[str] = None):
+    """Persiste la correspondance custom_id → feature_uid d'un batch (table batch_items).
+    items : [{custom_id, feature_uid, feature_index, model_run_id?}, …]. model_run_id (param)
+    est la valeur par défaut. Idempotent (INSERT OR IGNORE)."""
     with get_conn() as conn:
         for it in items:
+            # `or` (et non get(k, default)) : la clé peut exister avec None (build_batch_item_rows
+            # sans model_run_id) ; on retombe alors sur le model_run_id du batch.
+            mr = it.get("model_run_id") or model_run_id
+            if mr is None:
+                raise ValueError("save_batch_items : model_run_id requis (batch_items NOT NULL, Règle 11).")
             conn.execute("""
-                INSERT OR IGNORE INTO batch_items (batch_id, custom_id, feature_uid, feature_index)
-                VALUES (?, ?, ?, ?)
-            """, (batch_id, it["custom_id"], it["feature_uid"], it["feature_index"]))
+                INSERT OR IGNORE INTO batch_items (batch_id, custom_id, feature_uid,
+                                                   feature_index, model_run_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (batch_id, it["custom_id"], it["feature_uid"], it["feature_index"], mr))
 
 
 def load_batch_item_map(batch_id: str) -> dict[str, dict]:
-    """Recharge la map custom_id → {feature_uid, feature_index} persistée pour ce batch."""
+    """Recharge la map custom_id → {feature_uid, feature_index, model_run_id} pour ce batch."""
     with get_conn() as conn:
         rows = conn.execute("""
-            SELECT custom_id, feature_uid, feature_index FROM batch_items WHERE batch_id=?
+            SELECT custom_id, feature_uid, feature_index, model_run_id
+            FROM batch_items WHERE batch_id=?
         """, (batch_id,)).fetchall()
     return {r["custom_id"]: {"feature_uid": r["feature_uid"],
-                             "feature_index": r["feature_index"]} for r in rows}
+                             "feature_index": r["feature_index"],
+                             "model_run_id": r["model_run_id"]} for r in rows}
+
+
+# Mapping tier déclaré (config) → valeur stockée en DB (provider_tier).
+_TIER_DB = {
+    "A_fully_open":      "A_fully_open",
+    "A_or_B_open":       "A_fully_open",      # à préciser au gel ; rétrogradé vers B si poids seuls
+    "B_open_weight":     "B_open_weight",
+    "C_proprietary_api": "C_proprietary_api",
+}
+
+
+def register_model_run(run_id: str, provider_cfg: dict,
+                       is_primary_scientific: bool = False,
+                       use_for_primary_claims: Optional[bool] = None) -> str:
+    """Enregistre un model_run (Règle 11) et retourne son model_run_id. Archive révisions,
+    hashes, env d'inférence et paramètres de génération. Pour un fournisseur Tier C
+    (propriétaire), use_for_primary_claims est forcé à False par défaut."""
+    tier_decl = provider_cfg.get("tier", "C_proprietary_api")
+    tier_db   = _TIER_DB.get(tier_decl, tier_decl)
+    is_proprietary = tier_db == "C_proprietary_api"
+    if use_for_primary_claims is None:
+        # Par défaut : un Tier C n'est jamais admissible aux claims primaires (Règle 11).
+        use_for_primary_claims = (not is_proprietary) and is_primary_scientific
+    if is_proprietary and use_for_primary_claims:
+        raise ValueError("Un fournisseur Tier C (propriétaire) ne peut pas porter de claim primaire (Règle 11).")
+    gen = provider_cfg.get("deterministic_generation",
+                           provider_cfg.get("generation_params", {}))
+    model_run_id = str(uuid4())
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO model_runs (
+                model_run_id, run_id, provider_name, provider_tier, backend,
+                model_name, model_revision, tokenizer_revision,
+                weights_sha256, tokenizer_sha256, inference_env_hash,
+                precision, quantization, license,
+                is_primary_scientific, use_for_primary_claims,
+                generation_params_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            model_run_id, run_id, provider_cfg.get("provider", "unknown"), tier_db,
+            provider_cfg.get("backend"), provider_cfg.get("model_name", "unknown"),
+            provider_cfg.get("model_revision"), provider_cfg.get("tokenizer_revision"),
+            provider_cfg.get("weights_sha256"), provider_cfg.get("tokenizer_sha256"),
+            provider_cfg.get("inference_container_hash", provider_cfg.get("inference_env_hash")),
+            provider_cfg.get("precision"), provider_cfg.get("quantization"),
+            provider_cfg.get("license"),
+            int(is_primary_scientific), int(use_for_primary_claims),
+            json.dumps(gen), datetime.utcnow().isoformat()
+        ))
+    return model_run_id
+
+
+def load_model_runs(run_id: str) -> list[dict]:
+    """Tous les model_runs d'un run (pour le reporting par modèle/tier)."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM model_runs WHERE run_id=?", (run_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def restore_model_run_ids(run_id: str, config: dict) -> dict:
+    """À la REPRISE (--resume) : reconstruit config['_runtime']['model_run_ids'] depuis la DB,
+    en rattachant chaque model_run persisté au rôle déclaré dans la config (par model_name).
+    Évite que les phases multi-modèle (et steerer.run) retombent sur un model_run legacy alors
+    qu'un modèle primaire/secondaire existe déjà en DB (Règle 11)."""
+    by_name = {}
+    for r in load_model_runs(run_id):
+        by_name.setdefault(r["model_name"], r["model_run_id"])
+    mp  = config.get("model_providers", {})
+    ids = {}
+    prim = mp.get("primary_reproducible") or {}
+    if prim.get("model_name") in by_name:
+        ids["primary"] = by_name[prim["model_name"]]
+    sec = mp.get("secondary_proprietary") or {}
+    if sec.get("model_name") in by_name:
+        ids["secondary"] = by_name[sec["model_name"]]
+    repl = mp.get("optional_cross_model_replication", {})
+    if repl.get("enabled"):
+        ids["replication"] = [by_name[m["model_name"]]
+                              for m in repl.get("models", []) if m.get("model_name") in by_name]
+    config.setdefault("_runtime", {})["model_run_ids"] = ids
+    return ids
+
+
+def ensure_legacy_model_run(run_id: str, model_name: str = "legacy_single_model") -> str:
+    """Crée (si absent) et retourne un model_run LEGACY explicite et déterministe pour ce run.
+    Sert de valeur par défaut au chemin mono-modèle / aux écritures sans model_run_id explicite,
+    afin que les colonnes model_run_id NOT NULL ne dépendent jamais d'un NULL (Règle 11, item 6).
+    Tier C par défaut (donc jamais admissible aux claims primaires)."""
+    legacy_id = f"{run_id}::legacy"
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO model_runs (
+                model_run_id, run_id, provider_name, provider_tier, backend,
+                model_name, model_revision, tokenizer_revision,
+                weights_sha256, tokenizer_sha256, inference_env_hash,
+                precision, quantization, license,
+                is_primary_scientific, use_for_primary_claims,
+                generation_params_json, created_at
+            ) VALUES (?, ?, 'legacy', 'C_proprietary_api', NULL,
+                      ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                      0, 0, '{}', ?)
+        """, (legacy_id, run_id, model_name, datetime.utcnow().isoformat()))
+    return legacy_id
 
 
 def get_unconsumed_batch(run_id: str, phase: str,
-                         agent_name: str, run_number: int) -> Optional[str]:
-    """Retourne le batch_id d'un batch soumis mais non consommé, si existant."""
+                         agent_name: str, run_number: int,
+                         model_run_id: Optional[str] = None) -> Optional[str]:
+    """Retourne le batch_id d'un batch soumis mais non consommé, si existant. Filtre par
+    model_run_id : avec plusieurs modèles dans le même run, la reprise ne récupère JAMAIS le
+    batch d'un autre modèle (Règle 11). Comme batches.model_run_id est NOT NULL, un appel sans
+    model_run_id résout le model_run legacy explicite (sinon un filtre IS NULL ne matcherait rien)."""
+    if model_run_id is None:
+        model_run_id = ensure_legacy_model_run(run_id)
     with get_conn() as conn:
         row = conn.execute("""
             SELECT batch_id FROM batches
             WHERE run_id=? AND phase=? AND agent_name=?
-              AND run_number=? AND status='submitted'
+              AND run_number=? AND model_run_id=? AND status='submitted'
             ORDER BY submitted_at DESC LIMIT 1
-        """, (run_id, phase, agent_name, run_number)).fetchone()
+        """, (run_id, phase, agent_name, run_number, model_run_id)).fetchone()
     return row["batch_id"] if row else None
 
 
 def log_api_cost(run_id: str, phase: str, agent_name: str,
                  model: str, tokens_in: int, tokens_out: int,
-                 batch_id: Optional[str], cost: float) -> float:
-    """Loggue le coût et met à jour le cumul. IDEMPOTENT PAR BATCH : grâce à la contrainte
-    UNIQUE(run_id, batch_id, phase, agent_name) sur api_usage, un coût déjà loggé pour ce
-    (run, batch, phase, agent) n'est PAS recompté à la reprise (anti double-comptage du budget).
+                 batch_id: Optional[str], cost: float,
+                 model_run_id: Optional[str] = None) -> float:
+    """Loggue le coût et met à jour le cumul, ATTRIBUÉ PAR MODÈLE (Règle 11). IDEMPOTENT PAR
+    (modèle, batch) : grâce à UNIQUE(run_id, model_run_id, batch_id, phase, agent_name), un coût
+    déjà loggé pour ce (run, model_run, batch, phase, agent) n'est PAS recompté à la reprise.
+    model_run_id par défaut = model_run legacy explicite (colonne NOT NULL).
     NB : pour les appels non-batch (batch_id NULL), SQLite n'applique pas l'unicité — la
     déduplication ne vaut que pour les batchs (cas de la reprise après crash)."""
+    if model_run_id is None:
+        model_run_id = ensure_legacy_model_run(run_id)
     with get_conn() as conn:
-        # Non-silencieux : si un coût est DÉJÀ loggé pour ce batch avec un montant
+        # Non-silencieux : si un coût est DÉJÀ loggé pour ce (modèle, batch) avec un montant
         # différent, c'est une divergence à signaler (et non à ignorer).
         if batch_id is not None:
             prev = conn.execute("""
                 SELECT cost_usd, tokens_input, tokens_output FROM api_usage
-                WHERE run_id=? AND batch_id=? AND phase=? AND agent_name=?
-            """, (run_id, batch_id, phase, agent_name)).fetchone()
+                WHERE run_id=? AND model_run_id=? AND batch_id=? AND phase=? AND agent_name=?
+            """, (run_id, model_run_id, batch_id, phase, agent_name)).fetchone()
             if prev is not None and (
                 abs(prev["cost_usd"] - cost) > 1e-9
                 or prev["tokens_input"] != tokens_in
                 or prev["tokens_output"] != tokens_out
             ):
                 raise RuntimeError(
-                    f"Divergence de coût pour batch {batch_id} (run={run_id}, {phase}/{agent_name}) : "
-                    f"déjà loggé {prev['cost_usd']:.4f}$ "
+                    f"Divergence de coût pour batch {batch_id} (run={run_id}, model_run={model_run_id}, "
+                    f"{phase}/{agent_name}) : déjà loggé {prev['cost_usd']:.4f}$ "
                     f"({prev['tokens_input']}/{prev['tokens_output']} tk), "
                     f"recalculé {cost:.4f}$ ({tokens_in}/{tokens_out} tk). Run bloqué."
                 )
         cur = conn.execute("""
             INSERT OR IGNORE INTO api_usage (
-                call_id, run_id, phase, agent_name, model,
+                call_id, run_id, model_run_id, phase, agent_name, model,
                 tokens_input, tokens_output, batch_id, cost_usd,
                 cumulative_cost, timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
         """, (
-            str(uuid4()), run_id, phase, agent_name, model,
+            str(uuid4()), run_id, model_run_id, phase, agent_name, model,
             tokens_in, tokens_out, batch_id, cost,
             datetime.utcnow().isoformat()
         ))
@@ -1195,8 +1482,8 @@ def log_api_cost(run_id: str, phase: str, agent_name: str,
         ).fetchone()
         current = row["total_cost_usd"] if row else 0.0
         if cur.rowcount == 0:
-            # Coût déjà loggé pour ce batch (reprise, montant identique) → ne pas recompter.
-            logger.info(f"Coût déjà loggé pour batch {batch_id} — non recompté.")
+            # Coût déjà loggé pour ce (modèle, batch) (reprise, montant identique) → ne pas recompter.
+            logger.info(f"Coût déjà loggé pour batch {batch_id} (model_run {model_run_id}) — non recompté.")
             return current
         cumulative = current + cost
         conn.execute(
@@ -1205,10 +1492,10 @@ def log_api_cost(run_id: str, phase: str, agent_name: str,
         )
         conn.execute(
             "UPDATE api_usage SET cumulative_cost=? "
-            "WHERE run_id=? AND phase=? AND agent_name=? "
+            "WHERE run_id=? AND model_run_id=? AND phase=? AND agent_name=? "
             "AND (batch_id = ? OR (batch_id IS NULL AND ? IS NULL)) "
             "AND cumulative_cost IS NULL",
-            (cumulative, run_id, phase, agent_name, batch_id, batch_id)
+            (cumulative, run_id, model_run_id, phase, agent_name, batch_id, batch_id)
         )
     return cumulative
 
@@ -1227,7 +1514,13 @@ def check_budget(run_id: str, max_cost: float) -> tuple[float, bool]:
 ```python
 # utils/api_utils.py
 """
-Wrapper Batch API avec reprise après crash.
+LEGACY Anthropic Batch API wrapper.
+
+Ce module est le SEUL endroit autorisé à instancier le client Anthropic (`anthropic.Anthropic()`),
+et UNIQUEMENT pour la **condition propriétaire secondaire** (Tier C, Règle 11). Les agents ne
+l'utilisent pas directement pour produire des claims primaires : pour l'inférence scientifique
+(modèle ouvert primaire), ils passent par `utils.model_provider.ModelProvider` (Section 5 bis).
+Tout batch est rattaché à un `model_run_id` (par défaut un model_run legacy explicite).
 La config est toujours passée explicitement — aucun appel load_config() ici.
 """
 import anthropic
@@ -1237,7 +1530,7 @@ import logging
 import time
 from typing import Optional, Callable
 from utils.db_utils import (register_batch, register_batch_with_items,
-                             mark_batch_consumed,
+                             mark_batch_consumed, ensure_legacy_model_run,
                              get_unconsumed_batch, log_api_cost, check_budget,
                              save_batch_items, load_batch_item_map)
 
@@ -1300,11 +1593,13 @@ def build_custom_id_map(features: list[dict]) -> dict[str, str]:
     return {feature_custom_id(f): f["feature_uid"] for f in features}
 
 
-def build_batch_item_rows(features: list[dict]) -> list[dict]:
-    """Lignes pour batch_items (persistance crash-safe du mapping)."""
+def build_batch_item_rows(features: list[dict], model_run_id: Optional[str] = None) -> list[dict]:
+    """Lignes pour batch_items (persistance crash-safe du mapping). model_run_id rattache
+    chaque entrée au modèle producteur (batch_items.model_run_id NOT NULL, Règle 11)."""
     return [{"custom_id": feature_custom_id(f),
              "feature_uid": f["feature_uid"],
-             "feature_index": f["feature_index"]} for f in features]
+             "feature_index": f["feature_index"],
+             "model_run_id": model_run_id} for f in features]
 
 
 def build_batch_requests(features: list[dict],
@@ -1348,12 +1643,17 @@ def submit_and_poll_batch(requests: list[dict],
                           persist_fn: Optional[Callable] = None,
                           batch_items: Optional[list[dict]] = None,
                           requires_feature_mapping: bool = True,
+                          model_run_id: Optional[str] = None,
                           poll_interval: Optional[int] = None,
                           max_wait_seconds: Optional[int] = None) -> list[dict]:
     """
     Soumet un batch (ou récupère un batch non consommé existant) et retourne les résultats.
-    Config passée explicitement partout. Chaque résultat est enrichi de `feature_uid` à partir
-    de la map PERSISTÉE (batch_items), robuste à la reprise.
+    Config passée explicitement partout. Chaque résultat est enrichi de `feature_uid` et
+    `model_run_id` à partir de la map PERSISTÉE (batch_items), robuste à la reprise.
+
+    model_run_id : modèle producteur (Règle 11) ; à défaut, un model_run legacy explicite.
+    La reprise (get_unconsumed_batch) ET l'enregistrement filtrent/écrivent ce model_run_id,
+    de sorte que deux modèles d'un même run ne peuvent JAMAIS reprendre le batch l'un de l'autre.
 
     requires_feature_mapping (défaut True) : pour un batch FEATURE-LEVEL, batch_items est
     OBLIGATOIRE (save_agent_output exige feature_uid). On lève ValueError si manquant, et à la
@@ -1367,10 +1667,11 @@ def submit_and_poll_batch(requests: list[dict],
     L'enregistrement batch + mapping est ATOMIQUE (register_batch_with_items) : pas de
     fenêtre où le batch existe sans sa map.
     """
+    # Validation d'entrée PURE (sans DB) d'abord.
     if requires_feature_mapping and not batch_items:
         raise ValueError(
             "batch_items est requis pour un batch feature-level "
-            "(passer build_batch_item_rows(features)). "
+            "(passer build_batch_item_rows(features, model_run_id)). "
             "Mettre requires_feature_mapping=False pour un batch non-feature."
         )
     # Pré-vérification AVANT toute soumission (donc avant toute facturation) : les custom_id
@@ -1386,10 +1687,14 @@ def submit_and_poll_batch(requests: list[dict],
                 f"batch_items ne correspond pas aux requests "
                 f"(custom_id). missing={sorted(missing)}, extra={sorted(extra)}"
             )
+    # Résoudre le modèle producteur (écrit le model_run legacy si besoin) APRÈS la validation
+    # d'entrée : get_unconsumed_batch et register_batch_with_items doivent utiliser le MÊME
+    # model_run_id (sinon la reprise ne retrouverait pas le batch).
+    model_run_id = model_run_id or ensure_legacy_model_run(run_id)
     batch_cfg        = config.get("batch", {})
     poll_interval    = poll_interval    or batch_cfg.get("poll_interval_seconds", 60)
     max_wait_seconds = max_wait_seconds or batch_cfg.get("max_wait_seconds", 86400)
-    existing = get_unconsumed_batch(run_id, phase, agent_name, run_number)
+    existing = get_unconsumed_batch(run_id, phase, agent_name, run_number, model_run_id)
     if existing:
         logger.info(f"Reprise du batch non consommé {existing}")
         batch_id = existing
@@ -1408,9 +1713,10 @@ def submit_and_poll_batch(requests: list[dict],
             logger.info(f"Estimation pré-soumission : {est:.2f}$ (cumul {current:.2f}$)")
         batch = _get_client().messages.batches.create(requests=requests)
         batch_id = batch.id
-        # Enregistrement ATOMIQUE batch + mapping (pas de fenêtre batch-sans-map).
+        # Enregistrement ATOMIQUE batch + mapping (pas de fenêtre batch-sans-map), rattaché au modèle.
         register_batch_with_items(batch_id, run_id, phase, agent_name,
-                                  run_number, len(requests), batch_items or [])
+                                  run_number, len(requests), batch_items or [],
+                                  model_run_id=model_run_id)
         logger.info(f"Batch soumis : {batch_id} ({len(requests)} requêtes)")
 
     elapsed = 0
@@ -1483,6 +1789,7 @@ def submit_and_poll_batch(requests: list[dict],
         if item is not None:
             r["feature_uid"]   = item["feature_uid"]
             r["feature_index"] = item["feature_index"]
+            r["model_run_id"]  = item["model_run_id"]
         elif requires_feature_mapping:
             raise RuntimeError(
                 f"custom_id {r['custom_id']} absent de batch_items (batch {batch_id}) — "
@@ -1496,7 +1803,8 @@ def submit_and_poll_batch(requests: list[dict],
 
     cost       = compute_cost(model, total_in, total_out, is_batch=True)
     cumulative = log_api_cost(run_id, phase, agent_name, model,
-                              total_in, total_out, batch_id, cost)
+                              total_in, total_out, batch_id, cost,
+                              model_run_id=model_run_id)
     mark_batch_consumed(batch_id)
     logger.info(f"Batch {batch_id} consommé — coût : {cost:.3f}$ | "
                 f"Cumulé : {cumulative:.2f}$")
@@ -1625,6 +1933,257 @@ def verify_prompts_unchanged(prompt_paths: dict,
                 f"  actuel  : {current[:16]}..."
             )
 ```
+
+---
+
+## 5 bis. Abstraction d'inférence (`ModelProvider`) et politique de modèles
+
+Les agents ne doivent **jamais** instancier `anthropic.Anthropic()` directement (Règle 11). Ils dépendent d'une interface commune `ModelProvider`, ce qui permet d'exécuter le **même** protocole avec Anthropic (Tier C, secondaire) ou un modèle local (Tier A/B, primaire).
+
+```python
+# utils/model_provider.py
+"""
+Abstraction d'inférence multi-fournisseurs (Règle 11). Une seule interface generate() ;
+les imports lourds (anthropic, vllm, transformers, llama_cpp) sont PARESSEUX pour que ce
+module s'importe sans toutes les dépendances installées. AnthropicProvider est CONSERVÉ.
+"""
+from typing import Optional
+
+
+class ModelProvider:
+    """Interface commune. Toute implémentation expose generate() avec la MÊME signature."""
+    tier: str = "unknown"          # A_fully_open | B_open_weight | C_proprietary_api
+
+    def generate(self, messages: list[dict], system_prompt: str,
+                 max_tokens: int, generation_params: dict) -> str:
+        raise NotImplementedError
+
+
+class AnthropicProvider(ModelProvider):
+    """Tier C — API propriétaire (conditionnée SECONDAIRE par défaut, Règle 11)."""
+    tier = "C_proprietary_api"
+
+    def __init__(self, model_name: str, api_version: Optional[str] = None):
+        import anthropic                       # import paresseux
+        self._client = anthropic.Anthropic()
+        self.model_name = model_name
+        self.api_version = api_version
+
+    def generate(self, messages, system_prompt, max_tokens, generation_params):
+        params = {"model": self.model_name, "max_tokens": max_tokens,
+                  "system": system_prompt, "messages": messages}
+        if generation_params.get("temperature") is not None:
+            params["temperature"] = generation_params["temperature"]
+        resp = self._client.messages.create(**params)
+        return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+
+
+class VLLMProvider(ModelProvider):
+    """Tier A/B — modèle local servi par vLLM (révision épinglée)."""
+    tier = "B_open_weight"
+
+    def __init__(self, model_name: str, model_revision: Optional[str] = None,
+                 precision: str = "bfloat16", quantization: Optional[str] = None):
+        from vllm import LLM                    # import paresseux
+        self.model_name = model_name
+        self.model_revision = model_revision
+        kw = {"model": model_name, "dtype": precision}
+        if model_revision:
+            kw["revision"] = model_revision
+        if quantization:
+            kw["quantization"] = quantization
+        self._llm = LLM(**kw)
+
+    def generate(self, messages, system_prompt, max_tokens, generation_params):
+        from vllm import SamplingParams
+        prompt = self._apply_chat_template(system_prompt, messages)
+        sp = SamplingParams(
+            temperature=generation_params.get("temperature", 0.0),
+            top_p=generation_params.get("top_p", 1.0),
+            seed=generation_params.get("seed", 42),
+            max_tokens=max_tokens,
+        )
+        out = self._llm.generate([prompt], sp)
+        return out[0].outputs[0].text
+
+    def _apply_chat_template(self, system_prompt, messages):
+        from transformers import AutoTokenizer
+        tok = AutoTokenizer.from_pretrained(self.model_name, revision=self.model_revision)
+        full = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + messages
+        return tok.apply_chat_template(full, tokenize=False, add_generation_prompt=True)
+
+
+class TransformersProvider(ModelProvider):
+    """Tier A/B — HuggingFace Transformers (petits modèles, tests, ou backend par défaut)."""
+    tier = "B_open_weight"
+
+    def __init__(self, model_name: str, model_revision: Optional[str] = None,
+                 precision: str = "bfloat16"):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.model_name = model_name
+        self.model_revision = model_revision
+        self._tok = AutoTokenizer.from_pretrained(model_name, revision=model_revision)
+        dtype = getattr(torch, precision, torch.float32)
+        self._model = AutoModelForCausalLM.from_pretrained(
+            model_name, revision=model_revision, torch_dtype=dtype)
+
+    def generate(self, messages, system_prompt, max_tokens, generation_params):
+        full = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + messages
+        inputs = self._tok.apply_chat_template(full, return_tensors="pt",
+                                               add_generation_prompt=True)
+        gen = self._model.generate(
+            inputs, max_new_tokens=max_tokens,
+            do_sample=generation_params.get("temperature", 0.0) > 0,
+            temperature=generation_params.get("temperature", 0.0) or None,
+            top_p=generation_params.get("top_p", 1.0),
+        )
+        return self._tok.decode(gen[0][inputs.shape[1]:], skip_special_tokens=True)
+
+
+class LlamaCppProvider(ModelProvider):
+    """Tier A/B — modèles GGUF quantifiés via llama.cpp (optionnel)."""
+    tier = "B_open_weight"
+
+    def __init__(self, model_path: str, n_ctx: int = 8192):
+        from llama_cpp import Llama             # import paresseux
+        self._llm = Llama(model_path=model_path, n_ctx=n_ctx, logits_all=False)
+
+    def generate(self, messages, system_prompt, max_tokens, generation_params):
+        full = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + messages
+        out = self._llm.create_chat_completion(
+            messages=full, max_tokens=max_tokens,
+            temperature=generation_params.get("temperature", 0.0),
+            top_p=generation_params.get("top_p", 1.0),
+            seed=generation_params.get("seed", 42),
+        )
+        return out["choices"][0]["message"]["content"]
+
+
+_BACKENDS = {
+    "anthropic":    lambda c: AnthropicProvider(c["model_name"], c.get("api_version")),
+    "vllm":         lambda c: VLLMProvider(c["model_name"], c.get("model_revision"),
+                                           c.get("precision", "bfloat16"), c.get("quantization")),
+    "transformers": lambda c: TransformersProvider(c["model_name"], c.get("model_revision"),
+                                                   c.get("precision", "bfloat16")),
+    "llama_cpp":    lambda c: LlamaCppProvider(c["model_name"], c.get("n_ctx", 8192)),
+}
+
+
+def build_provider(provider_cfg: dict) -> ModelProvider:
+    """Fabrique un ModelProvider depuis une entrée de config model_providers.
+    backend 'anthropic' OU provider 'anthropic' → AnthropicProvider ; sinon backend local."""
+    backend = provider_cfg.get("backend")
+    if provider_cfg.get("provider") == "anthropic" and not backend:
+        backend = "anthropic"
+    if backend not in _BACKENDS:
+        raise ValueError(f"Backend inconnu : {backend!r} (attendus : {sorted(_BACKENDS)}).")
+    return _BACKENDS[backend](provider_cfg)
+```
+
+### Politique de modèles (gardes) — `utils/model_policy.py`
+
+```python
+# utils/model_policy.py
+"""Gardes de la Règle 11 : exécutabilité par tier, admissibilité des claims primaires,
+exigence d'artefacts pour un full run, et reporting/robustesse cross-modèle."""
+
+TIER_OPEN = {"A_fully_open", "B_open_weight"}
+_REQUIRED_FULL_RUN_ARTIFACTS = ("model_revision", "tokenizer_revision",
+                                "weights_sha256", "tokenizer_sha256", "inference_env_hash")
+
+
+def normalize_tier(tier: str) -> str:
+    return {"A_or_B_open": "A_fully_open"}.get(tier, tier)
+
+
+def validate_model_providers(config: dict, run_mode: str):
+    """Vérifie la politique de tiers selon le run_mode.
+      - dev   : aucun modèle ouvert requis (résultats non scientifiques).
+      - pilot : au moins un modèle ouvert (Tier A/B) doit être déclaré.
+      - full  : un primary_reproducible Tier A/B est OBLIGATOIRE, avec TOUS les artefacts
+                d'archivage renseignés (révisions, hashes, env). Tier C ⇒ jamais primaire.
+    Lève ValueError en cas de violation."""
+    mp = config.get("model_providers", {})
+    primary = mp.get("primary_reproducible")
+    secondary = mp.get("secondary_proprietary")
+
+    if secondary and normalize_tier(secondary.get("tier", "")) == "C_proprietary_api":
+        if secondary.get("use_for_primary_claims", False):
+            raise ValueError("secondary_proprietary (Tier C) ne peut pas avoir use_for_primary_claims=true (Règle 11).")
+
+    if run_mode == "dev":
+        return
+    # pilot/full : il faut au moins un modèle ouvert
+    open_models = []
+    if primary and normalize_tier(primary.get("tier", "")) in TIER_OPEN:
+        open_models.append(primary)
+    for m in mp.get("optional_cross_model_replication", {}).get("models", []):
+        if normalize_tier(m.get("tier", "")) in TIER_OPEN:
+            open_models.append(m)
+    if not open_models:
+        raise ValueError(f"run_mode={run_mode} exige au moins un modèle ouvert (Tier A/B).")
+
+    if run_mode == "full":
+        if not primary or normalize_tier(primary.get("tier", "")) not in TIER_OPEN:
+            raise ValueError("full run : primary_reproducible (Tier A/B) obligatoire.")
+        missing = [k for k in _REQUIRED_FULL_RUN_ARTIFACTS
+                   if not primary.get(k) or str(primary.get(k)).startswith("FILL")]
+        if missing:
+            raise ValueError(
+                f"full run : artefacts d'archivage manquants pour le modèle primaire ouvert : {missing}. "
+                f"Renseigner révisions/hashes/env avant le gel (Règle 11)."
+            )
+
+
+def assert_primary_claim_allowed(model_run: dict):
+    """Garde du reporter : refuse de marquer une métrique comme claim PRIMAIRE si elle ne
+    provient pas d'un modèle admissible (Tier A/B avec use_for_primary_claims=1)."""
+    tier = normalize_tier(model_run.get("provider_tier", ""))
+    if tier not in TIER_OPEN or not model_run.get("use_for_primary_claims"):
+        raise ValueError(
+            f"Claim primaire refusé : modèle {model_run.get('model_name')} "
+            f"(tier={tier}, use_for_primary_claims={model_run.get('use_for_primary_claims')}). "
+            f"Les claims primaires sont restreints aux modèles Tier A/B (Règle 11)."
+        )
+
+
+def classify_cross_model_effect(per_model: dict, threshold: float = 0.0) -> str:
+    """Classe un effet à partir d'un dict {model_run_id: {'tier':…, 'significant':bool}}.
+      - model-invariant : significatif sur ≥ 2 modèles (dont ≥ 1 ouvert)
+      - open-model-only : significatif uniquement sur des modèles ouverts
+      - proprietary-only: significatif uniquement sur des modèles propriétaires
+      - unstable        : aucun des cas ci-dessus (effet non robuste)."""
+    sig_open  = [m for m in per_model.values() if m["significant"] and normalize_tier(m["tier"]) in TIER_OPEN]
+    sig_prop  = [m for m in per_model.values() if m["significant"] and normalize_tier(m["tier"]) == "C_proprietary_api"]
+    n_sig = len(sig_open) + len(sig_prop)
+    if n_sig >= 2 and sig_open:
+        return "model-invariant"
+    if sig_open and not sig_prop:
+        return "open-model-only"
+    if sig_prop and not sig_open:
+        return "proprietary-only"
+    return "unstable"
+```
+
+### Reporting par modèle et par tier
+
+Le rapport final sépare **toujours** les métriques par modèle et par tier (jamais de fusion d'un score Tier C dans un score primaire). Tableau principal :
+
+| Metric | Open-weight primary | Proprietary secondary | Difference | Interpretation |
+| ------ | ------------------: | --------------------: | ---------: | -------------- |
+
+Sont rapportés, par modèle : *causal validity primary score* (modèle ouvert), *causal validity secondary score* (Anthropic), couverture, utilité end-to-end, fidelity AUC, consistance, coût, runtime, et **reproducibility tier**. Une affirmation forte (« MorphoRepr outperforms NL labels ») n'est admissible que si elle est vraie sur le **modèle primaire ouvert** ; sinon elle est reformulée « in the proprietary reference condition » (Règle 11).
+
+### Robustesse cross-modèle
+
+Lorsque `optional_cross_model_replication.enabled=true`, le protocole calcule : stabilité des annotations entre modèles, stabilité des propriétés causales, variation du macro-F1 par modèle, corrélation des scores de validité causale, et différence open-weight primaire vs propriétaire secondaire. Chaque effet est ensuite classé par `classify_cross_model_effect` en **model-invariant**, **open-model-only**, **proprietary-only** ou **unstable**.
+
+### Politique d'exécution par phase
+
+- **Dev run** : Anthropic OU un petit modèle local ; résultats non scientifiques.
+- **Pilot run** : doit inclure **au moins un modèle open-weight** ; Anthropic possible pour comparaison.
+- **Full frozen run** : déclare un `primary_reproducible` (Tier A/B) ; les métriques **principales** sont calculées sur ce modèle ; Anthropic est **secondaire** ; si les conclusions diffèrent entre modèle ouvert et propriétaire, le papier doit le **rapporter explicitement**.
 
 ---
 
@@ -2177,6 +2736,30 @@ def steer_feature(model,
     return results
 
 
+def _load_encoded_random_features(run_id: str, model_run_id: str) -> list[dict]:
+    """Charge les features du split 'random' encodées PAR LE MODÈLE `model_run_id` (Phase 4
+    strictement model-aware, Règle 11). Le filtre `ao.model_run_id = ?` garantit qu'on ne
+    steere QUE les annotations du modèle primaire : une sortie encoder secondaire ou legacy
+    pour le même feature_uid n'est jamais récupérée sous le model_run_id primaire.
+    C'est la logique de chargement utilisée par run()."""
+    from utils.db_utils import get_conn
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT ao.feature_uid,
+                   f.feature_index,
+                   f.split, f.layer, f.layer_index,
+                   f.activation_p99,
+                   f.activation_mean,
+                   f.activation_std,
+                   json_extract(ao.output_json, '$.expression') as expression
+            FROM agent_outputs ao
+            JOIN features f ON f.feature_uid = ao.feature_uid
+            WHERE ao.run_id = ? AND ao.model_run_id = ? AND ao.agent_name = 'encoder'
+              AND ao.run_number = 1 AND ao.status = 'ok'
+        """, (run_id, model_run_id)).fetchall()
+    return [dict(r) for r in rows if r["split"] == "random"]
+
+
 def run(run_id: str, config: dict):
     """Phase 4 — Steering. Magnitude normalisée par feature (× p99) ; dose-réponse seedée."""
     from utils.db_utils import get_conn
@@ -2198,6 +2781,12 @@ def run(run_id: str, config: dict):
     seed            = config.get("seed", 42)
     gens            = st.get("generations_per_probe", 1)
 
+    # Modèle du steering (Règle 11) : le modèle ouvert primaire si disponible (stash de
+    # l'orchestrateur), sinon un model_run legacy explicite. steering_results.model_run_id NOT NULL.
+    from utils.db_utils import ensure_legacy_model_run
+    model_run_id = (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+                    or ensure_legacy_model_run(run_id))
+
     # Volumétrie du PRIMAIRE (Sections 6–7) : sondes NEUTRES par défaut, generations_per_probe
     # (1 recommandé avec un décodage greedy temperature=0). n_probe_sentences_pilot est utilisé
     # en mode dev/pilot. Les sondes domaine sont une analyse SECONDAIRE par défaut
@@ -2215,22 +2804,9 @@ def run(run_id: str, config: dict):
         for cat, sents in load_domain_probes(n_dom, config).items():
             probe_sets.append(("domain_compatible", cat, sents))
 
-    with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT ao.feature_uid,
-                   f.feature_index,
-                   f.split, f.layer, f.layer_index,
-                   f.activation_p99,
-                   f.activation_mean,
-                   f.activation_std,
-                   json_extract(ao.output_json, '$.expression') as expression
-            FROM agent_outputs ao
-            JOIN features f ON f.feature_uid = ao.feature_uid
-            WHERE ao.run_id = ? AND ao.agent_name = 'encoder'
-              AND ao.run_number = 1 AND ao.status = 'ok'
-        """, (run_id,)).fetchall()
-
-    random_features = [dict(r) for r in rows if r["split"] == "random"]
+    # Chargement STRICTEMENT model-aware : uniquement les annotations encoder du modèle primaire
+    # (filtre ao.model_run_id dans _load_encoded_random_features). Pas de fuite multi-modèle.
+    random_features = _load_encoded_random_features(run_id, model_run_id)
 
     # Sous-échantillon seedé — PAS [:n] qui dépendrait de l'ordre de la DB
     rng       = random.Random(seed)
@@ -2240,27 +2816,27 @@ def run(run_id: str, config: dict):
 
     # Sous-échantillon : courbe dose-réponse complète (multiples de p99, contrôle 0 inclus)
     _run_steering_batch(run_id, model, subsample, dose_rel,
-                        probe_sets, gens, config, mode, legacy_abs)
+                        probe_sets, gens, config, mode, legacy_abs, model_run_id)
 
     # Features restants : contrôle (0) + magnitude primaire uniquement
     remaining = [f for f in random_features
                  if f["feature_uid"] not in subsample_uids]
     _run_steering_batch(run_id, model, remaining, [0.0, primary_rel],
-                        probe_sets, gens, config, mode, legacy_abs)
+                        probe_sets, gens, config, mode, legacy_abs, model_run_id)
 
     logger.info("Phase 4 steering terminée")
 
 
-def _insert_steering_result(conn, run_id, feat, space, mag_abs, mag_rel, magnitude_key,
+def _insert_steering_result(conn, run_id, model_run_id, feat, space, mag_abs, mag_rel, magnitude_key,
                             family, category, g, r, config):
     """Insertion NON SILENCIEUSE : conserve la 1ʳᵉ sortie d'une cellule, mais journalise
     toute tentative de réécriture DIFFÉRENTE (table steering_duplicate_attempts) au lieu de
-    l'ignorer en silence (cohérent avec save_agent_output)."""
-    key = (run_id, feat.get("feature_uid"), space, magnitude_key,
+    l'ignorer en silence (cohérent avec save_agent_output). Rattaché au modèle (Règle 11)."""
+    key = (run_id, model_run_id, feat.get("feature_uid"), space, magnitude_key,
            family, category, r["probe_id"], g)
     existing = conn.execute("""
         SELECT result_id, text_after FROM steering_results
-        WHERE run_id=? AND feature_uid=? AND intervention_space=? AND magnitude_key=?
+        WHERE run_id=? AND model_run_id=? AND feature_uid=? AND intervention_space=? AND magnitude_key=?
           AND probe_family IS ? AND probe_category IS ? AND probe_id=? AND generation_index=?
     """, key).fetchone()
     if existing is not None:
@@ -2284,15 +2860,15 @@ def _insert_steering_result(conn, run_id, feat, space, mag_abs, mag_rel, magnitu
         return
     conn.execute("""
         INSERT INTO steering_results (
-            result_id, run_id, feature_uid, feature_index,
+            result_id, run_id, model_run_id, feature_uid, feature_index,
             intervention_space, magnitude, magnitude_rel, magnitude_key,
             probe_id, probe_family, probe_category, generation_index,
             text_before, text_after, layer, token_position,
             activation_before, activation_after, achieved_delta,
             ood_flag, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        str(uuid4()), run_id, feat.get("feature_uid"), feat["feature_index"], space,
+        str(uuid4()), run_id, model_run_id, feat.get("feature_uid"), feat["feature_index"], space,
         mag_abs, mag_rel, magnitude_key, r["probe_id"], family, category, g,
         r["text_before"], r.get("text_after"), feat.get("layer"),
         config["steering"].get("token_position"),
@@ -2308,7 +2884,8 @@ def _run_steering_batch(run_id: str, model,
                         generations_per_probe: int,
                         config: dict,
                         mode: str,
-                        legacy_abs: float):
+                        legacy_abs: float,
+                        model_run_id: str):
     from utils.db_utils import get_conn
     space = config["steering"].get("intervention_space", "residual_add_decoder")
     with get_conn() as conn:
@@ -2347,7 +2924,7 @@ def _run_steering_batch(run_id: str, model,
                             mag_abs, sentences, feature_stats, config
                         )
                         for r in results:
-                            _insert_steering_result(conn, run_id, feat, space, mag_abs,
+                            _insert_steering_result(conn, run_id, model_run_id, feat, space, mag_abs,
                                                     mag_rel, magnitude_key, family, category,
                                                     g, r, config)
 
@@ -2859,11 +3436,11 @@ def test_reprise_batch_apres_crash(test_db):
     _inserer_run(conn)
     conn.commit(); conn.close()
 
-    register_batch("b1", "r1", "phase3", "encoder", 1, 100)
-    assert get_unconsumed_batch("r1", "phase3", "encoder", 1) == "b1"
+    register_batch("b1", "r1", "phase3", "encoder", 1, 100)   # → model_run_id legacy 'r1::legacy'
+    assert get_unconsumed_batch("r1", "phase3", "encoder", 1, "r1::legacy") == "b1"
 
     mark_batch_consumed("b1")
-    assert get_unconsumed_batch("r1", "phase3", "encoder", 1) is None
+    assert get_unconsumed_batch("r1", "phase3", "encoder", 1, "r1::legacy") is None
 
 
 # ─────────────────────────────────────────────
@@ -2893,6 +3470,12 @@ def _setup_features_encodees(test_db, n=5, split="random"):
         ) VALUES ('r1','c','h','{}','v1','lh','ch','{}',0,NULL,42,NULL,
                   '2026-01-01',NULL,'running',NULL,0.0)
     """)
+    # model_run legacy explicite (model_run_id NOT NULL sur agent_outputs, v6.5.1)
+    conn.execute("""
+        INSERT INTO model_runs (model_run_id, run_id, provider_name, provider_tier, backend,
+            model_name, generation_params_json, created_at)
+        VALUES ('r1::legacy','r1','legacy','C_proprietary_api',NULL,'legacy','{}','2026-01-01')
+    """)
     for i in range(1, n + 1):
         conn.execute("""
             INSERT INTO features (
@@ -2906,11 +3489,11 @@ def _setup_features_encodees(test_db, n=5, split="random"):
         """, (f"gpt2:res-jb:6:hook_resid_post:{i}", i, split))
         conn.execute("""
             INSERT INTO agent_outputs (
-                output_id, run_id, feature_uid, feature_index, agent_name, run_number,
+                output_id, run_id, model_run_id, feature_uid, feature_index, agent_name, run_number,
                 output_json, raw_output, status, error_msg,
                 tokens_input, tokens_output, batch_id, cost_usd,
                 coefficient_type, created_at
-            ) VALUES (?,?,?,?,'encoder',1,?,?,?,NULL,100,50,NULL,0.0,
+            ) VALUES (?,?,'r1::legacy',?,?,'encoder',1,?,?,?,NULL,100,50,NULL,0.0,
                       'confidence','2026-01-01')
         """, (
             f"o{i}", "r1", f"gpt2:res-jb:6:hook_resid_post:{i}", i,
@@ -2975,6 +3558,10 @@ def _run(conn):
         temperature, seed, proxy_model, started_at, completed_at, status, last_phase,
         total_cost_usd) VALUES ('r1','c','h','{}','v1','lh','ch','{}',0,NULL,42,NULL,
         '2026-01-01',NULL,'running',NULL,0.0)""")
+    # model_run legacy explicite (model_run_id NOT NULL sur agent_outputs/api_usage/…, v6.5.1)
+    conn.execute("""INSERT OR IGNORE INTO model_runs (model_run_id, run_id, provider_name,
+        provider_tier, backend, model_name, generation_params_json, created_at)
+        VALUES ('r1::legacy','r1','legacy','C_proprietary_api',NULL,'legacy','{}','2026-01-01')""")
 
 
 def _feat(conn, layer, idx, split="random"):
@@ -3040,10 +3627,10 @@ def test_shuffle_pas_de_collision_uid(test_db):
     data = [(6, 1), (6, 2), (6, 3), (9, 1), (9, 2), (9, 3)]
     for layer, idx in data:
         _feat(conn, layer, idx)
-        conn.execute("""INSERT INTO agent_outputs (output_id, run_id, feature_uid,
+        conn.execute("""INSERT INTO agent_outputs (output_id, run_id, model_run_id, feature_uid,
             feature_index, agent_name, run_number, output_json, raw_output, status,
             error_msg, tokens_input, tokens_output, batch_id, cost_usd, coefficient_type,
-            created_at) VALUES (?,?,?,?, 'encoder',1,?, 'r','ok',NULL,1,1,NULL,0.0,
+            created_at) VALUES (?,?,'r1::legacy',?,?, 'encoder',1,?, 'r','ok',NULL,1,1,NULL,0.0,
             'confidence','2026-01-01')""",
             (f"o_{layer}_{idx}", "r1", _uid(layer, idx), idx,
              f'{{"status":"encoded","expression":"0.{idx+5}0·ag-is"}}'))
@@ -3079,14 +3666,15 @@ def test_batch_items_mapping_persiste_pour_reprise(test_db):
 
     feats = [{"feature_uid": _uid(6, 123), "feature_index": 123},
              {"feature_uid": _uid(9, 123), "feature_index": 123}]
-    register_batch("b1", "r1", "p3", "encoder", 1, len(feats))
-    save_batch_items("b1", build_batch_item_rows(feats))
+    register_batch("b1", "r1", "p3", "encoder", 1, len(feats), model_run_id="r1::legacy")
+    save_batch_items("b1", build_batch_item_rows(feats, "r1::legacy"))
 
     m = load_batch_item_map("b1")
     assert m[feature_custom_id(feats[0])]["feature_uid"] == _uid(6, 123)
     assert m[feature_custom_id(feats[1])]["feature_uid"] == _uid(9, 123)
+    assert m[feature_custom_id(feats[0])]["model_run_id"] == "r1::legacy"   # rattaché au modèle
     # idempotent : re-persister ne duplique pas (PK batch_id+custom_id)
-    save_batch_items("b1", build_batch_item_rows(feats))
+    save_batch_items("b1", build_batch_item_rows(feats, "r1::legacy"))
     assert len(load_batch_item_map("b1")) == 2
 
 
@@ -3102,9 +3690,9 @@ def test_register_batch_with_items_atomique(test_db):
     feats = [{"feature_uid": _uid(6, 7), "feature_index": 7},
              {"feature_uid": _uid(9, 7), "feature_index": 7}]
     register_batch_with_items("bX", "r1", "p3", "encoder", 1, len(feats),
-                              build_batch_item_rows(feats))
+                              build_batch_item_rows(feats), model_run_id="r1::legacy")
     # le batch est enregistré (récupérable) ET la map est présente, dans la même transaction
-    assert get_unconsumed_batch("r1", "p3", "encoder", 1) == "bX"
+    assert get_unconsumed_batch("r1", "p3", "encoder", 1, "r1::legacy") == "bX"
     assert len(load_batch_item_map("bX")) == 2
 
 
@@ -3199,6 +3787,302 @@ def test_submit_rejette_batch_items_incoherents():
         submit_and_poll_batch(requests, "r1", "p3", "encoder", 1, "m", {}, batch_items=items)
 ```
 
+```python
+# ─────────────────────────────────────────────
+# tests/test_model_providers.py  (v6.5 — reproductibilité par modèles ouverts, Règle 11)
+# ─────────────────────────────────────────────
+
+import sqlite3
+import pytest
+from utils.model_provider import (ModelProvider, AnthropicProvider, VLLMProvider,
+                                  TransformersProvider, LlamaCppProvider, build_provider)
+from utils.model_policy import (validate_model_providers, assert_primary_claim_allowed,
+                                classify_cross_model_effect)
+from utils.db_utils import register_model_run, save_agent_output, load_model_runs
+
+
+def _uid(L, idx=1): return f"gpt2:res-jb:{L}:hook_resid_post:{idx}"
+
+
+def _run(conn):
+    conn.execute("""INSERT INTO runs (run_id,git_commit,config_hash,prompt_hashes,lexicon_version,
+        lexicon_hash,corpus_hash,models_json,use_temperature,temperature,seed,proxy_model,
+        started_at,completed_at,status,last_phase,total_cost_usd) VALUES ('r1','c','h','{}','v1',
+        'lh',NULL,'{}',0,NULL,42,NULL,'t',NULL,'loading',NULL,0.0)""")
+
+
+def _feat(conn, L, idx=1):
+    conn.execute("""INSERT INTO features (feature_uid,model_name,sae_release,layer_index,hook_name,
+        feature_index,split,nl_description,top_examples,score_interp,activation_freq,activation_p99,
+        activation_mean,activation_std,layer,neuronpedia_url,loaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?)""", (_uid(L, idx),"gpt2","res-jb",L,"hook_resid_post",idx,"random","d","[]",
+        0.8,0.5,2.0,0.8,0.4,str(L),"x","t"))
+
+
+_PRIMARY = {"tier": "B_open_weight", "provider": "local", "backend": "vllm",
+            "model_name": "Qwen/Qwen3-8B-Instruct", "model_revision": "abc123",
+            "tokenizer_revision": "abc123", "weights_sha256": "deadbeef",
+            "tokenizer_sha256": "cafef00d", "inference_container_hash": "img@sha256:1",
+            "deterministic_generation": {"temperature": 0.0, "seed": 42}}
+_SECONDARY = {"tier": "C_proprietary_api", "provider": "anthropic",
+              "model_name": "claude-sonnet-4-6", "use_for_primary_claims": False}
+
+
+def test_model_provider_interface():
+    """Tous les providers exposent generate() avec la même interface ; build_provider rejette
+    un backend inconnu. (Pas d'instanciation : imports lourds paresseux.)"""
+    for cls in (AnthropicProvider, VLLMProvider, TransformersProvider, LlamaCppProvider):
+        assert issubclass(cls, ModelProvider)
+        assert callable(getattr(cls, "generate"))
+    with pytest.raises(NotImplementedError):
+        ModelProvider().generate([], "", 10, {})
+    with pytest.raises(ValueError):
+        build_provider({"backend": "unknown_backend", "model_name": "x"})
+
+
+def test_model_run_id_isolation(test_db):
+    """Deux modèles produisent des sorties pour le MÊME feature_uid sans collision."""
+    conn = sqlite3.connect(test_db); _run(conn); _feat(conn, 6); conn.commit(); conn.close()
+    mr_a = register_model_run("r1", _PRIMARY, is_primary_scientific=True)
+    mr_b = register_model_run("r1", _SECONDARY, is_primary_scientific=False)
+    save_agent_output("r1", 1, "encoder", 1, {"expr": "A"}, "rawA", "ok", None, 1, 1, None, 0.0,
+                      feature_uid=_uid(6), model_run_id=mr_a)
+    save_agent_output("r1", 1, "encoder", 1, {"expr": "B"}, "rawB", "ok", None, 1, 1, None, 0.0,
+                      feature_uid=_uid(6), model_run_id=mr_b)
+    conn = sqlite3.connect(test_db)
+    n = conn.execute("SELECT COUNT(*) FROM agent_outputs WHERE feature_uid=?", (_uid(6),)).fetchone()[0]
+    conn.close()
+    assert n == 2                                  # une sortie par modèle, pas d'écrasement
+
+
+def test_primary_claim_requires_open_model():
+    """assert_primary_claim_allowed refuse un modèle Tier C et accepte un Tier A/B éligible."""
+    with pytest.raises(ValueError):
+        assert_primary_claim_allowed({"model_name": "claude", "provider_tier": "C_proprietary_api",
+                                      "use_for_primary_claims": 0})
+    assert_primary_claim_allowed({"model_name": "Qwen", "provider_tier": "B_open_weight",
+                                  "use_for_primary_claims": 1})   # ne lève pas
+
+
+def test_model_artifact_hashes_required():
+    """Un full run échoue si le modèle primaire ouvert n'a pas révisions/hashes/env."""
+    incomplete = dict(_PRIMARY); incomplete["weights_sha256"] = "FILL_BEFORE_FULL_RUN"
+    cfg = {"model_providers": {"primary_reproducible": incomplete}}
+    with pytest.raises(ValueError):
+        validate_model_providers(cfg, "full")
+    # complet → passe
+    validate_model_providers({"model_providers": {"primary_reproducible": _PRIMARY}}, "full")
+
+
+def test_anthropic_is_secondary_by_default(test_db):
+    """provider_tier=C_proprietary_api ⇒ use_for_primary_claims=0 par défaut en DB."""
+    conn = sqlite3.connect(test_db); _run(conn); conn.commit(); conn.close()
+    mr = register_model_run("r1", _SECONDARY, is_primary_scientific=False)  # pas d'override explicite
+    rows = {r["model_run_id"]: r for r in load_model_runs("r1")}
+    assert rows[mr]["provider_tier"] == "C_proprietary_api"
+    assert rows[mr]["use_for_primary_claims"] == 0
+
+
+def test_cross_model_report():
+    """Le rapport sépare les métriques par modèle/tier ; classify_cross_model_effect étiquette."""
+    per_model = {
+        "mr_open":  {"tier": "B_open_weight",     "significant": True},
+        "mr_prop":  {"tier": "C_proprietary_api", "significant": True},
+    }
+    assert classify_cross_model_effect(per_model) == "model-invariant"
+    assert classify_cross_model_effect({"mr_open": {"tier": "B_open_weight", "significant": True},
+                                        "mr_prop": {"tier": "C_proprietary_api", "significant": False}}) == "open-model-only"
+    assert classify_cross_model_effect({"mr_open": {"tier": "A_fully_open", "significant": False},
+                                        "mr_prop": {"tier": "C_proprietary_api", "significant": True}}) == "proprietary-only"
+    assert classify_cross_model_effect({"mr_open": {"tier": "B_open_weight", "significant": False}}) == "unstable"
+    # séparation par tier : aucune fusion d'un score Tier C dans le bucket "ouvert"
+    open_tiers = ("A_fully_open", "B_open_weight")
+    buckets = {"open": [], "proprietary": []}
+    for mid, m in per_model.items():
+        key = "open" if m["tier"] in open_tiers else "proprietary"
+        buckets[key].append(mid)
+    assert buckets["open"] == ["mr_open"] and buckets["proprietary"] == ["mr_prop"]
+```
+
+```python
+# ─────────────────────────────────────────────
+# tests/test_model_run_propagation.py  (v6.5.1 — propagation effective de model_run_id)
+# ─────────────────────────────────────────────
+
+import sqlite3
+import pytest
+from utils.db_utils import (register_model_run, register_batch_with_items, get_unconsumed_batch,
+                            save_agent_output, log_api_cost, load_batch_item_map)
+from utils.api_utils import build_batch_item_rows, feature_custom_id
+
+
+def _uid(L, idx=1): return f"gpt2:res-jb:{L}:hook_resid_post:{idx}"
+
+
+def _run(conn):
+    conn.execute("""INSERT INTO runs (run_id,git_commit,config_hash,prompt_hashes,lexicon_version,
+        lexicon_hash,corpus_hash,models_json,use_temperature,temperature,seed,proxy_model,
+        started_at,completed_at,status,last_phase,total_cost_usd) VALUES ('r1','c','h','{}','v1',
+        'lh',NULL,'{}',0,NULL,42,NULL,'t',NULL,'loading',NULL,0.0)""")
+
+
+def _feat(conn, L, idx=1):
+    conn.execute("""INSERT INTO features (feature_uid,model_name,sae_release,layer_index,hook_name,
+        feature_index,split,nl_description,top_examples,score_interp,activation_freq,activation_p99,
+        activation_mean,activation_std,layer,neuronpedia_url,loaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?)""", (_uid(L, idx),"gpt2","res-jb",L,"hook_resid_post",idx,"random","d","[]",
+        0.8,0.5,2.0,0.8,0.4,str(L),"x","t"))
+
+
+_A = {"tier": "B_open_weight", "provider": "local", "backend": "vllm", "model_name": "Qwen"}
+_B = {"tier": "C_proprietary_api", "provider": "anthropic", "model_name": "claude"}
+
+
+def _two_models(test_db):
+    conn = sqlite3.connect(test_db); _run(conn); _feat(conn, 6, 1); conn.commit(); conn.close()
+    mr_a = register_model_run("r1", _A, is_primary_scientific=True)
+    mr_b = register_model_run("r1", _B, is_primary_scientific=False)
+    return mr_a, mr_b
+
+
+def test_two_models_never_resume_same_batch(test_db):
+    """Deux modèles, même (run, phase, agent, run_number) : la reprise filtrée par model_run_id
+    ne retourne JAMAIS le batch de l'autre modèle (get_unconsumed_batch + batches.model_run_id)."""
+    mr_a, mr_b = _two_models(test_db)
+    feats = [{"feature_uid": _uid(6, 1), "feature_index": 1}]
+    register_batch_with_items("bA", "r1", "p3", "encoder", 1, 1,
+                              build_batch_item_rows(feats, mr_a), model_run_id=mr_a)
+    register_batch_with_items("bB", "r1", "p3", "encoder", 1, 1,
+                              build_batch_item_rows(feats, mr_b), model_run_id=mr_b)
+    assert get_unconsumed_batch("r1", "p3", "encoder", 1, mr_a) == "bA"   # chacun son batch
+    assert get_unconsumed_batch("r1", "p3", "encoder", 1, mr_b) == "bB"
+    assert get_unconsumed_batch("r1", "p3", "encoder", 1, mr_a) != "bB"
+
+
+def test_batch_items_model_run_id_renseigne(test_db):
+    """batch_items.model_run_id est bien renseigné (NOT NULL) et retrouvé par load_batch_item_map."""
+    mr_a, _ = _two_models(test_db)
+    feats = [{"feature_uid": _uid(6, 1), "feature_index": 1}]
+    register_batch_with_items("bA", "r1", "p3", "encoder", 1, 1,
+                              build_batch_item_rows(feats, mr_a), model_run_id=mr_a)
+    m = load_batch_item_map("bA")
+    assert m[feature_custom_id(feats[0])]["model_run_id"] == mr_a
+    conn = sqlite3.connect(test_db)
+    n_null = conn.execute("SELECT COUNT(*) FROM batch_items WHERE model_run_id IS NULL").fetchone()[0]
+    conn.close()
+    assert n_null == 0
+
+
+def test_api_usage_separe_deux_modeles(test_db):
+    """log_api_cost attribue les coûts PAR modèle : deux model_run_id → deux lignes api_usage."""
+    mr_a, mr_b = _two_models(test_db)
+    log_api_cost("r1", "p3", "encoder", "Qwen",  100, 50, "bA", 0.10, model_run_id=mr_a)
+    log_api_cost("r1", "p3", "encoder", "claude",100, 50, "bB", 0.40, model_run_id=mr_b)
+    conn = sqlite3.connect(test_db); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT model_run_id, cost_usd FROM api_usage ORDER BY cost_usd").fetchall()
+    conn.close()
+    assert len(rows) == 2                                  # pas d'écrasement entre modèles
+    by_mr = {r["model_run_id"]: r["cost_usd"] for r in rows}
+    assert abs(by_mr[mr_a] - 0.10) < 1e-9 and abs(by_mr[mr_b] - 0.40) < 1e-9
+
+
+def test_agent_outputs_refuse_collision_par_modele(test_db):
+    """Même modèle + même feature_uid + sortie différente → RuntimeError (anti-collision intra-modèle) ;
+    deux modèles différents → deux lignes (pas d'écrasement inter-modèle)."""
+    mr_a, mr_b = _two_models(test_db)
+    save_agent_output("r1", 1, "encoder", 1, {"e": "A"}, "rawA", "ok", None, 1, 1, None, 0.0,
+                      feature_uid=_uid(6, 1), model_run_id=mr_a)
+    # collision intra-modèle (même mr_a, sortie différente) → bloquée
+    with pytest.raises(RuntimeError):
+        save_agent_output("r1", 1, "encoder", 1, {"e": "A2"}, "rawA2", "ok", None, 1, 1, None, 0.0,
+                          feature_uid=_uid(6, 1), model_run_id=mr_a)
+    # autre modèle → autorisé (pas d'écrasement)
+    save_agent_output("r1", 1, "encoder", 1, {"e": "B"}, "rawB", "ok", None, 1, 1, None, 0.0,
+                      feature_uid=_uid(6, 1), model_run_id=mr_b)
+    conn = sqlite3.connect(test_db)
+    n = conn.execute("SELECT COUNT(*) FROM agent_outputs WHERE feature_uid=?", (_uid(6, 1),)).fetchone()[0]
+    conn.close()
+    assert n == 2
+
+
+# ── v6.5.2 : bugs de propagation multi-modèle restants ──
+
+def test_load_features_not_processed_model_aware(test_db):
+    """Deux modèles doivent pouvoir traiter le MÊME feature_uid (même agent/run_number) : après
+    que mr_a a produit la sortie, mr_b doit TOUJOURS voir la feature comme à traiter."""
+    from utils.db_utils import load_features_not_processed
+    mr_a, mr_b = _two_models(test_db)
+    save_agent_output("r1", 1, "encoder", 1, {"e": "A"}, "raw", "ok", None, 1, 1, None, 0.0,
+                      feature_uid=_uid(6, 1), model_run_id=mr_a)
+    # mr_a : la feature est traitée → plus en attente
+    assert [f["feature_uid"] for f in load_features_not_processed("r1", "encoder", 1, mr_a)] == []
+    # mr_b : la même feature est ENCORE à traiter (sinon la réplication serait bloquée)
+    assert [f["feature_uid"] for f in load_features_not_processed("r1", "encoder", 1, mr_b)] == [_uid(6, 1)]
+
+
+def test_build_batch_item_rows_none_ne_produit_pas_null(test_db):
+    """build_batch_item_rows(features) avec model_run_id=None, puis register_batch_with_items(...,
+    model_run_id='r1::legacy') : l'item doit insérer 'r1::legacy', JAMAIS NULL (fallback `or`)."""
+    conn = sqlite3.connect(test_db); _run(conn); _feat(conn, 6, 1); conn.commit(); conn.close()
+    feats = [{"feature_uid": _uid(6, 1), "feature_index": 1}]
+    rows = build_batch_item_rows(feats)                 # model_run_id=None dans chaque item
+    assert rows[0]["model_run_id"] is None
+    register_batch_with_items("bL", "r1", "p3", "encoder", 1, 1, rows, model_run_id="r1::legacy")
+    m = load_batch_item_map("bL")
+    assert m[feature_custom_id(feats[0])]["model_run_id"] == "r1::legacy"
+    conn = sqlite3.connect(test_db)
+    n_null = conn.execute("SELECT COUNT(*) FROM batch_items WHERE model_run_id IS NULL").fetchone()[0]
+    conn.close()
+    assert n_null == 0
+
+
+def test_get_unconsumed_batch_legacy_retrouvable(test_db):
+    """Un batch legacy enregistré via register_batch(..., model_run_id=None) doit être retrouvé
+    par get_unconsumed_batch(..., model_run_id=None) (les deux résolvent le même legacy)."""
+    from utils.db_utils import register_batch, get_unconsumed_batch
+    conn = sqlite3.connect(test_db); _run(conn); conn.commit(); conn.close()
+    register_batch("bLeg", "r1", "p3", "encoder", 1, 1)          # model_run_id=None → legacy
+    assert get_unconsumed_batch("r1", "p3", "encoder", 1) == "bLeg"   # None → legacy aussi
+
+
+def test_resume_restaure_model_run_ids(test_db):
+    """Après enregistrement d'un primaire + secondaire, restore_model_run_ids reconstruit les
+    mêmes model_run_id depuis la DB (reprise --resume)."""
+    from utils.db_utils import restore_model_run_ids
+    conn = sqlite3.connect(test_db); _run(conn); conn.commit(); conn.close()
+    cfg = {"model_providers": {
+        "primary_reproducible":  {"model_name": "Qwen",  "tier": "B_open_weight"},
+        "secondary_proprietary": {"model_name": "claude","tier": "C_proprietary_api"},
+    }}
+    mr_p = register_model_run("r1", cfg["model_providers"]["primary_reproducible"], is_primary_scientific=True)
+    mr_s = register_model_run("r1", cfg["model_providers"]["secondary_proprietary"], is_primary_scientific=False)
+    ids = restore_model_run_ids("r1", cfg)
+    assert ids["primary"] == mr_p and ids["secondary"] == mr_s
+    assert cfg["_runtime"]["model_run_ids"]["primary"] == mr_p     # bien écrit dans _runtime
+
+
+# ── v6.5.3 : fuite multi-modèle en Phase 4 (chargement du steering) ──
+
+def test_steering_charge_uniquement_le_modele_primaire(test_db):
+    """Phase 4 strictement model-aware : deux sorties encoder pour le MÊME feature_uid (modèles
+    A et B, expressions différentes) ; _load_encoded_random_features (la logique de chargement
+    de steerer.run) ne récupère QUE l'annotation du modèle primaire, jamais celle du secondaire."""
+    from agents.steerer import _load_encoded_random_features
+    mr_a, mr_b = _two_models(test_db)
+    save_agent_output("r1", 1, "encoder", 1, {"expression": "0.80·ag-is"}, "rawA", "ok", None,
+                      1, 1, None, 0.0, feature_uid=_uid(6, 1), model_run_id=mr_a)
+    save_agent_output("r1", 1, "encoder", 1, {"expression": "0.70·sci-o"}, "rawB", "ok", None,
+                      1, 1, None, 0.0, feature_uid=_uid(6, 1), model_run_id=mr_b)
+    feats = _load_encoded_random_features("r1", mr_a)              # steering sous le modèle PRIMAIRE
+    assert len(feats) == 1 and feats[0]["feature_uid"] == _uid(6, 1)
+    assert feats[0]["expression"] == "0.80·ag-is"                 # annotation du primaire (A)
+    # aucune sortie secondaire/legacy n'est steerable sous le model_run_id primaire
+    assert "0.70·sci-o" not in {f["expression"] for f in feats}
+    # symétriquement, le secondaire ne voit que sa propre annotation
+    feats_b = _load_encoded_random_features("r1", mr_b)
+    assert len(feats_b) == 1 and feats_b[0]["expression"] == "0.70·sci-o"
+```
+
 ---
 
 ## 10. Orchestrateur
@@ -3206,7 +4090,7 @@ def test_submit_rejette_batch_items_incoherents():
 ```python
 # orchestrator.py
 """
-Orchestrateur MorphoRepr v6.4.1 — run gelé et auditable.
+Orchestrateur MorphoRepr v6.5.3 — run gelé et auditable.
 
 Usage :
     python orchestrator.py --config configs/run_v1.yaml
@@ -3239,7 +4123,7 @@ logger = logging.getLogger("orchestrator")
 from utils.config_utils import load_config, hash_config
 from utils.prompt_utils import (register_prompts, verify_prompts_unchanged,
                                  hash_lexicon_canonical, hash_corpus_canonical)
-from utils.db_utils import get_conn, check_budget
+from utils.db_utils import get_conn, check_budget, register_model_run, restore_model_run_ids
 
 from agents import loader, ranker, cluster, labeler, consistency
 from agents import encoder, fidelity, steerer, predictor, causal_scorer, reporter
@@ -3321,6 +4205,10 @@ def initialize_run(config: dict, args) -> str:
             datetime.utcnow().isoformat()
         ))
 
+    # Enregistrer les model_runs (Règle 11) et mémoriser leurs ids pour les agents.
+    # Le modèle primaire ouvert porte is_primary_scientific=1 ; Anthropic reste secondaire.
+    _register_model_runs(run_id, config)
+
     logger.info(f"Run initialisé : {run_id}")
     logger.info(f"  Git commit    : {git_commit[:16]}")
     logger.info(f"  Config hash   : {config_hash[:16]}")
@@ -3329,6 +4217,29 @@ def initialize_run(config: dict, args) -> str:
     if proxy.get("enabled"):
         logger.info(f"  Modèle proxy  : {proxy.get('name')} (Sonnet inaccessible)")
     return run_id
+
+
+def _register_model_runs(run_id: str, config: dict):
+    """Crée un model_run par fournisseur déclaré et stocke les ids dans config['_runtime'].
+    primary_reproducible → is_primary_scientific=1 ; secondary_proprietary (Tier C) → secondaire."""
+    mp = config.get("model_providers", {})
+    runtime = config.setdefault("_runtime", {})
+    ids = {}
+    if mp.get("primary_reproducible"):
+        ids["primary"] = register_model_run(run_id, mp["primary_reproducible"],
+                                             is_primary_scientific=True)
+    if mp.get("secondary_proprietary"):
+        ids["secondary"] = register_model_run(run_id, mp["secondary_proprietary"],
+                                              is_primary_scientific=False,
+                                              use_for_primary_claims=False)
+    repl = mp.get("optional_cross_model_replication", {})
+    if repl.get("enabled"):
+        ids["replication"] = [register_model_run(run_id, m, is_primary_scientific=False)
+                              for m in repl.get("models", [])]
+    runtime["model_run_ids"] = ids
+    logger.info(f"  model_runs    : primary={'oui' if 'primary' in ids else 'non'}, "
+                f"secondary={'oui' if 'secondary' in ids else 'non'}, "
+                f"replication={len(ids.get('replication', []))}")
 
 
 def freeze_corpus_hash(run_id: str):
@@ -3475,6 +4386,11 @@ def run_pipeline(args):
     Path("logs").mkdir(exist_ok=True)
     config = load_config(args.config)
 
+    # Garde Règle 11 : valider la politique de tiers de modèles AVANT toute exécution.
+    # full → primary_reproducible Tier A/B obligatoire avec artefacts ; Tier C jamais primaire.
+    from utils.model_policy import validate_model_providers
+    validate_model_providers(config, config.get("run_mode", "full"))
+
     # Propager --n-features (dev run) : loader/ranker lisent config["_runtime"]["n_features_override"].
     config.setdefault("_runtime", {})["n_features_override"] = args.n_features
     if args.n_features:
@@ -3486,6 +4402,12 @@ def run_pipeline(args):
     if args.resume and args.run_id:
         run_id = args.run_id
         verify_resume_integrity(run_id, config, args)
+        # Reconstruire les model_run_ids depuis la DB (Règle 11) : sinon les phases multi-modèle
+        # et steerer.run retomberaient sur un model_run legacy au lieu du primaire déjà enregistré.
+        ids = restore_model_run_ids(run_id, config)
+        logger.info(f"model_runs restaurés : primary={'oui' if 'primary' in ids else 'non'}, "
+                    f"secondary={'oui' if 'secondary' in ids else 'non'}, "
+                    f"replication={len(ids.get('replication', []))}")
         last_phase = get_last_phase(run_id)
         logger.info(f"Reprise du run {run_id} depuis : {last_phase}")
     else:
@@ -3639,6 +4561,17 @@ print(f'Ajouter dans run_v1.yaml : git_commit: {commit}')
 # Mettre à jour run_v1.yaml avec le commit exact
 
 # ── 9. Full frozen run ───────────────────────────────────────
+# Checklist Règle 11 (vérifiée par validate_model_providers, échoue sinon) :
+#   [ ] model revision pinned          (primary_reproducible.model_revision)
+#   [ ] tokenizer revision pinned      (primary_reproducible.tokenizer_revision)
+#   [ ] weights hash archived          (weights_sha256)
+#   [ ] tokenizer hash archived        (tokenizer_sha256)
+#   [ ] inference container hash archived (inference_container_hash / inference_env_hash)
+#   [ ] backend version archived       (dans inference_env_hash / env)
+#   [ ] dtype and quantization archived (precision, quantization)
+#   [ ] generation parameters archived (deterministic_generation → generation_params_json)
+#   [ ] model tier declared            (provider_tier)
+#   [ ] primary claims restricted to Tier A/B (use_for_primary_claims=1 seulement pour A/B)
 python orchestrator.py --config configs/run_v1.yaml
 # Aucune intervention pendant l'exécution
 
@@ -3886,3 +4819,96 @@ Micro-patch répondant à la septième relecture (deux retouches). Aucune modifi
 **Versions.** Marqueurs en v6.4.1 (en-tête, titre §3, `-- Version 6.4.1`, docstring orchestrateur).
 
 **Réserves inchangées (assumées).** `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`), gardés par des flags `run_in_pipeline`. Le protocole est jugé suffisamment stable ; le prochain vrai chantier est l'implémentation effective de `steer_feature()` et de `causal_scorer._load_pairs()`.
+
+---
+
+## 20. Changelog v6.4.1 → v6.5
+
+Ajout d'une **couche de reproductibilité par modèles ouverts** (Règle 11). Touche le schéma SQLite → version mineure v6.5. **Compatibilité v6.4.1 préservée** : `batch_items` intact, `AnthropicProvider` conservé, Phase 4 toujours désactivée par défaut, `steer_feature()`/`run_intervention_controls()`/`causal_scorer._load_pairs()` restent des contrats.
+
+**Règles.**
+- **Règle 11 (Reproductibilité par modèles ouverts)** : trois tiers de fournisseurs (A fully open / B open-weight / C proprietary API). Toute conclusion principale doit être rapportée sur un modèle Tier A/B ; les résultats propriétaires sont secondaires. Une affirmation forte n'est admissible que sur le modèle primaire ouvert. Les agents passent par `ModelProvider`, jamais par `anthropic.Anthropic()` directement.
+- **Règle 11 bis** : le full frozen run fige une liste exacte de modèles ; toute substitution après gel exige un nouveau `run_id`.
+
+**Schéma (v6.5).**
+- Nouvelle table `model_runs` (fournisseur, tier, backend, révisions, hashes poids/tokenizer, env d'inférence, precision/quantization, licence, `is_primary_scientific`, `use_for_primary_claims`, `generation_params_json`).
+- `model_run_id` ajouté à `agent_outputs` (UNIQUE devient `(run_id, model_run_id, feature_uid, agent_name, run_number)` → plusieurs modèles annotent le même feature sans collision), `baselines` (+ dans son UNIQUE), `metrics`, `api_usage`, `batch_items`.
+- `save_agent_output` accepte `model_run_id` (clé d'existence via `IS`, NULL-safe pour le chemin legacy mono-modèle).
+- NB : le reporting est basé fichier (pas de table `reports`) ; `model_run_id` est porté par les `metrics` agrégées.
+
+**Configuration.**
+- Section `model_providers` (`primary_reproducible` Tier B exemple Qwen3-8B, `secondary_proprietary` Anthropic `use_for_primary_claims=false`, `optional_cross_model_replication` Mistral/Llama/OLMo). Champs à figer (révisions, hashes, env) marqués `FILL*`. La section `models` Anthropic est conservée pour la condition secondaire et les outils d'assistance.
+
+**Code.**
+- `utils/model_provider.py` : interface `ModelProvider.generate()` + `AnthropicProvider` (Tier C), `VLLMProvider`, `TransformersProvider`, `LlamaCppProvider` (imports lourds paresseux) + fabrique `build_provider`.
+- `utils/model_policy.py` : `validate_model_providers(config, run_mode)` (pilot exige ≥ 1 modèle ouvert ; full exige un primaire Tier A/B avec révisions+hashes+env ; Tier C jamais primaire), `assert_primary_claim_allowed(model_run)` (garde reporter), `classify_cross_model_effect(...)` (model-invariant / open-model-only / proprietary-only / unstable).
+- `db_utils` : `register_model_run(...)` (Tier C ⇒ `use_for_primary_claims=0` par défaut), `load_model_runs(...)`.
+- Orchestrateur : `run_pipeline` appelle `validate_model_providers` avant toute phase ; `initialize_run` enregistre les `model_runs` (primaire/secondaire/réplication) et mémorise leurs ids dans `config['_runtime']`.
+
+**Politique, reporting, robustesse cross-modèle.**
+- Section « Model openness and reproducibility policy » (pourquoi un propriétaire seul ne suffit pas, distinction open-source/open-weight/proprietary, reporting séparé Tier A/B vs C, anti open-washing, liste d'artefacts à archiver) + extrait README.
+- Politique d'exécution dev/pilot/full ; tableau de reporting par modèle/tier ; section robustesse cross-modèle ; règle de conclusion scientifique (« in the proprietary reference condition » si non reproduit sur modèle ouvert).
+- Checklist full frozen run (révisions/hashes/env/dtype/quantization/params/tier/claims restreints A/B).
+
+**Tests (6).**
+- `test_model_provider_interface` (interface commune + backend inconnu rejeté), `test_model_run_id_isolation` (deux modèles, même feature_uid, pas de collision), `test_primary_claim_requires_open_model` (reporter refuse un claim primaire Tier C), `test_model_artifact_hashes_required` (full run échoue sans révisions/hashes/env), `test_anthropic_is_secondary_by_default` (Tier C ⇒ `use_for_primary_claims=0`), `test_cross_model_report` (séparation par modèle/tier + classification d'effet).
+
+**À faire côté papier (v0.29, hors procédure).** Ajouter à la méthode la politique de tiers et la justification de reproductibilité (claims primaires sur modèle ouvert, propriétaire en comparaison externe) ; aux menaces à la validité : open-weight ≠ toujours fully open, dépendance au modèle, modèles propriétaires changeants sans accès complet, variations backend/dtype/quantization/matériel ; à la checklist de gel : révisions/hashes/env/tier/claims restreints A/B.
+
+---
+
+## 21. Changelog v6.5 → v6.5.1
+
+Correctif : la politique de modèles ouverts (v6.5) était bonne, mais `model_run_id` était ajouté au schéma **sans être propagé** dans plusieurs fonctions. La v6.5.1 complète la propagation et durcit les contraintes. Réponse point par point à la 8ᵉ relecture.
+
+**1. Marqueurs du papier (v0.29).** En-tête `*Version 0.29 — Juin 2026*`, `Remplace la version 0.28`, footer en v0.29, note de version « par rapport aux versions antérieures ». 0 marqueur v0.28 résiduel.
+
+**2. `model_run_id` propagé dans les batchs.** `batches` reçoit la colonne `model_run_id` (NOT NULL). `register_batch`, `register_batch_with_items`, `save_batch_items`, `build_batch_item_rows(features, model_run_id)` et `load_batch_item_map` (qui renvoie désormais `model_run_id`) le propagent. La colonne `batch_items.model_run_id` est réellement renseignée.
+
+**3. Reprise batch multi-modèle sûre.** `get_unconsumed_batch(..., model_run_id=None)` filtre `model_run_id IS ?`. `submit_and_poll_batch(..., model_run_id=None)` résout le modèle (legacy explicite par défaut) **après** la validation d'entrée, puis le passe à `get_unconsumed_batch` ET `register_batch_with_items` (même id) : deux modèles d'un même run ne peuvent plus reprendre le batch l'un de l'autre.
+
+**4. Comptabilité par modèle.** `log_api_cost(..., model_run_id=None)` insère `model_run_id` ; `api_usage` passe à `UNIQUE(run_id, model_run_id, batch_id, phase, agent_name)` ; coûts attribués par modèle.
+
+**5. Statut de `api_utils.py` (Option A).** Marqué explicitement **LEGACY Anthropic Batch API wrapper** : seul endroit autorisé à instancier `anthropic.Anthropic()`, et UNIQUEMENT pour la condition propriétaire **secondaire** (Tier C). L'inférence scientifique passe par `ModelProvider`. Plus de contradiction avec la Règle 11.
+
+**6. `model_run_id` NOT NULL là où le multi-modèle est central.** `agent_outputs`, `baselines`, `batch_items`, `batches`, `api_usage`, `steering_results` : `model_run_id TEXT NOT NULL`. Un `model_run` **legacy explicite** déterministe (`{run_id}::legacy`, Tier C) est créé via `ensure_legacy_model_run` et sert de valeur par défaut au chemin mono-modèle — plus aucune dépendance à l'unicité SQLite avec NULL. **Déviation assumée** : `metrics.model_run_id` reste NULLABLE, car certaines métriques sont **agrégées / cross-modèle** (stabilité inter-modèles) et n'appartiennent à aucun modèle unique.
+
+**7. `steering_results.model_run_id`.** Colonne NOT NULL ajoutée ; incluse dans la contrainte d'unicité. `_insert_steering_result`, `_run_steering_batch` et `steerer.run` (qui résout le modèle ouvert primaire depuis `config['_runtime']`, sinon legacy) le persistent. Le steering devient rapportable par modèle/tier.
+
+**8. README.** Pointeurs mis à jour (papier v0.29, procédure v6.5.1, `model_runs`, `ModelProvider`, modèle ouvert primaire, Anthropic secondaire, claims Tier A/B) et **suppression** des références obsolètes (papier v0.26, critère « IC non chevauchants »).
+
+**9. Tests.** Nouveau bloc `test_model_run_propagation.py` : deux modèles ne reprennent jamais le même batch ; `batch_items.model_run_id` renseigné (0 NULL) ; `api_usage` sépare deux modèles ; `agent_outputs` refuse la collision intra-modèle mais autorise deux modèles. Tests batch existants adaptés (passage du `model_run_id` legacy à `get_unconsumed_batch`/`build_batch_item_rows`/`register_batch*`). Fixtures directes (`_setup_features_encodees`, helper `_run`, test de collision shuffle) insèrent un `model_runs` legacy et `model_run_id`.
+
+**Réserves inchangées.** `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`), gardés par des flags `run_in_pipeline`. La v6.5.1 complète la propagation de `model_run_id` (le verrouillage de la couche « modèles ouverts » sera finalisé en v6.5.3, Phase 4 incluse) ; le prochain vrai chantier reste l'implémentation effective de `steer_feature()` et de `causal_scorer._load_pairs()`.
+
+---
+
+## 22. Changelog v6.5.1 → v6.5.2
+
+Correctif **final** de propagation multi-modèle. `model_run_id` était présent dans le schéma (v6.5.1) mais la **logique de sélection des features** n'était pas encore *model-aware*, et deux pièges de fallback/filtre subsistaient. Aucune modification de schéma.
+
+**1. `load_features_not_processed` rendu *model-aware*.** Ajout d'un paramètre `model_run_id` ; le filtre des sorties déjà produites passe à `(run_id, model_run_id, agent_name, run_number)`. Sans cela, un 2ᵉ modèle (réplication/secondaire) voyait toutes les features comme déjà traitées par le 1ᵉʳ — bloquant pour la réplication. `model_run_id` par défaut = model_run legacy explicite (chemin mono-modèle). Les agents (modules non montrés) passent le `model_run_id` correspondant : **contrat documenté**. Test `test_load_features_not_processed_model_aware`.
+
+**2. Fallback `batch_items.model_run_id` ne produisant plus de NULL.** `dict.get(clé, défaut)` renvoie `None` quand la clé existe **avec** la valeur `None` (cas de `build_batch_item_rows(features)` sans `model_run_id`). Dans `register_batch_with_items` et `save_batch_items`, remplacement par `it.get("model_run_id") or model_run_id`. La colonne `batch_items.model_run_id` (NOT NULL) ne peut plus recevoir de NULL même quand les items portent une clé `model_run_id=None`. Test `test_build_batch_item_rows_none_ne_produit_pas_null`.
+
+**3. `get_unconsumed_batch(model_run_id=None)` résout le legacy.** Comme `batches.model_run_id` est NOT NULL, un filtre `IS NULL` ne pouvait plus rien matcher. La fonction résout désormais `ensure_legacy_model_run(run_id)` quand `model_run_id is None` (et filtre par égalité). Un batch legacy enregistré via `register_batch(..., model_run_id=None)` est de nouveau retrouvable. Test `test_get_unconsumed_batch_legacy_retrouvable`.
+
+**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.5.3 — 500 features"` (résidu v0.28 supprimé).
+
+**5. Reprise : restauration des `model_run_ids`.** Nouvelle fonction `restore_model_run_ids(run_id, config)` qui reconstruit `config['_runtime']['model_run_ids']` depuis la DB (rattachement par `model_name` au rôle déclaré : primary/secondary/replication). Appelée dans la branche `--resume` de l'orchestrateur. `steerer.run` ne retombe donc plus sur un model_run legacy quand un modèle primaire existe déjà en DB. Test `test_resume_restaure_model_run_ids`.
+
+**Réserves inchangées.** `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`), gardés par des flags `run_in_pipeline`. La couche « modèles ouverts / reproductibilité » est désormais cohérente de bout en bout (schéma + logique de sélection + reprise). Le prochain vrai chantier reste l'implémentation effective de `steer_feature()` et de `causal_scorer._load_pairs()`.
+
+---
+
+## 23. Changelog v6.5.2 → v6.5.3
+
+Correctif d'une **dernière fuite multi-modèle en Phase 4**. Aucune modification de schéma.
+
+**`steerer.run()` rendu strictement model-aware.** La fonction résolvait déjà le `model_run_id` du modèle primaire, mais la requête qui charge les sorties `encoder` depuis `agent_outputs` ne filtrait pas dessus : un même `feature_uid` annoté par plusieurs modèles aurait pu faire steerer une annotation secondaire/legacy sous le `model_run_id` primaire. Le chargement est désormais extrait dans `_load_encoded_random_features(run_id, model_run_id)`, dont la requête ajoute `AND ao.model_run_id = ?` (paramètres `(run_id, model_run_id)`) ; `run()` l'appelle. Le steering primaire n'utilise donc que les annotations du modèle primaire.
+
+**Test.** `test_steering_charge_uniquement_le_modele_primaire` : deux `model_run_id` dans le même run, deux sorties `encoder` pour le même `feature_uid` (expressions différentes) ; le chargement du steering ne récupère que l'annotation du modèle primaire, et symétriquement le secondaire ne voit que la sienne — aucune sortie secondaire/legacy n'est steerable sous le `model_run_id` primaire.
+
+**Résidus documentaires.** README intégré : « Procédure de test : v6.5.3 ». Changelog v6.5.1 reformulé en historique (verrouillage finalisé en v6.5.3). Papier v0.29 : « Voir la procédure de test v6.5.x (≥ v6.5.3) ».
+
+**Phase 4 toujours contractuelle.** `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`) gardés par des flags `run_in_pipeline` : le correctif rend le *chargement* du steering model-aware, mais la Phase 4 n'est pas exécutable tant que `steer_feature()` n'est pas implémenté. La couche « modèles ouverts / reproductibilité » est désormais cohérente de bout en bout (schéma, sélection des features, reprise **et** Phase 4). Le prochain vrai chantier reste l'implémentation effective de `steer_feature()` et de `causal_scorer._load_pairs()`.

@@ -11,10 +11,10 @@ michaellaunay@logikascium.com
 ---
 
 *Preprint — article de positionnement et protocole d'évaluation — préparé pour soumission à arXiv cs.CL / HAL*
-*Version 0.28 — Juin 2026*
-*Remplace la version 0.27. Aucun résultat expérimental n'est revendiqué dans cette version ; les résultats seront rapportés à l'issue de l'exécution du pipeline.*
+*Version 0.29 — Juin 2026*
+*Remplace la version 0.28. Aucun résultat expérimental n'est revendiqué dans cette version ; les résultats seront rapportés à l'issue de l'exécution du pipeline.*
 
-**Note sur les versions** : ceci est la version longue HAL/arXiv. Une version courte workshop (cœur conceptuel, métriques principales, annexes résumées) est disponible sur demande et sera soumise séparément aux venues consacrées à l'interprétabilité et à l'IA centrée sur l'humain. La liste détaillée des modifications par rapport à la version 0.27 figure en Annexe C.
+**Note sur les versions** : ceci est la version longue HAL/arXiv. Une version courte workshop (cœur conceptuel, métriques principales, annexes résumées) est disponible sur demande et sera soumise séparément aux venues consacrées à l'interprétabilité et à l'IA centrée sur l'humain. La liste détaillée des modifications par rapport aux versions antérieures figure en Annexe C.
 
 ---
 
@@ -64,7 +64,7 @@ Ce papier est un **article de positionnement et protocole d'évaluation**. Il pr
 
 Pour clarifier ce qui est et n'est pas revendiqué, le tableau suivant met en regard chaque affirmation, son statut dans la présente version et l'évidence prévue pour la tester :
 
-| Affirmation | Statut (v0.28) | Évidence prévue |
+| Affirmation | Statut (v0.29) | Évidence prévue |
 |-------------|----------------|-----------------|
 | MorphoRepr est plus compact que les étiquettes NL | Hypothèse | longueur / entropie / étude utilisateur |
 | MorphoRepr est plus cohérent que les étiquettes NL | Hypothèse | Jaccard sur deux runs |
@@ -530,6 +530,18 @@ L'affirmation que les annotations MorphoRepr sont plus lisibles par l'humain et 
 
 Pour isoler l'apport des composants distinctifs de MorphoRepr — en particulier l'agglutination et l'ordre, dont l'ancrage théorique est faible (Section 3.1) — nous planifions une ablation comparant, sur les métriques de cohérence et de validité causale : (a) MorphoRepr complet ; (b) sans coefficients ; (c) racines seules ; (d) morphèmes **sans ordre** (sac de morphèmes) ; (e) suffixes/infixes seuls ; (f) coefficients randomisés. La condition « sans ordre » est décisive : si elle n'entraîne pas de perte mesurable, l'agglutination ordonnée n'apporte rien au-delà d'un ensemble de primitives, et la valeur de MorphoRepr serait alors purement ergonomique (à trancher par l'étude utilisateur).
 
+### 4.8 Politique de modèles ouverts et reproductibilité
+
+Les tâches agentiques et de jugement du pipeline peuvent être exécutées par différents fournisseurs de modèles. Pour que les conclusions soient reproductibles et auditables par d'autres laboratoires, le protocole distingue trois **tiers** de fournisseurs et impose que les conclusions principales reposent sur un modèle ouvert.
+
+- **Tier A — fully open / reproducible** : poids, tokenizer, code d'inférence, configuration, hyperparamètres, licence et (autant que possible) informations sur les données d'entraînement sont documentés et archivables.
+- **Tier B — open-weight** : poids et tokenizer publics, mais données ou détails de pré-entraînement partiellement fermés ; reproductible **computationnellement** si révisions exactes, hashes et paramètres d'inférence sont archivés.
+- **Tier C — proprietary API** : accessible uniquement par API propriétaire ; utilisable pour comparaison, développement ou analyse secondaire, mais jamais comme seule base des conclusions principales.
+
+**Justification.** Un modèle accessible uniquement par API peut être mis à jour, déprécié ou retiré sans accès aux poids, au tokenizer, aux données ni aux paramètres internes ; une conclusion qui n'existe que derrière une telle API n'est pas vérifiable indépendamment ni rejouable dans le temps. Les **claims primaires** de MorphoRepr sont donc calculés sur un modèle **Tier A ou B** (modèle ouvert primaire), et les résultats propriétaires (p. ex. la famille Claude) sont rapportés comme **comparaison externe / condition secondaire de robustesse**. Une affirmation forte du type « MorphoRepr surpasse les étiquettes en langue naturelle » n'est admissible que si elle est vraie sur le modèle ouvert primaire ; si elle ne vaut que sur un modèle propriétaire, elle est explicitement reformulée « dans la condition de référence propriétaire ». Lorsque plusieurs modèles ouverts sont exécutés (réplication cross-modèle), chaque effet est classé en *model-invariant*, *open-model-only*, *proprietary-only* ou *unstable*.
+
+**Archivage.** Pour chaque exécution de modèle, le protocole archive la révision exacte du modèle et du tokenizer, les empreintes des poids et du tokenizer, l'image d'inférence (Docker/Conda, version CUDA, version du backend), la précision et la quantization, les paramètres de génération (température, top-p, graine, longueur), les prompts (empreintés) et les sorties brutes. La distinction open-source / open-weight / proprietary est déclarée explicitement (un modèle qui ne fournit que ses poids est désigné *open-weight*, non *open source*, pour éviter l'open-washing). Le protocole d'évaluation associé implémente cette politique (table `model_runs`, gardes empêchant qu'un claim primaire provienne d'un modèle Tier C, et exigence d'artefacts d'archivage avant le full run).
+
 ---
 
 ## 5. Agenda de recherche
@@ -595,6 +607,10 @@ L'extensibilité de MorphoRepr via les racines libres crée une tension : un pet
 **Menaces à la validité externe :**
 
 - *Dépendance au modèle de validation* : la validation causale principale s'exécute sur un modèle proxy open-weight ; ses conclusions ne se généralisent pas automatiquement à d'autres modèles, architectures SAE ou dictionnaires de features. La généralisation nécessite des études de réplication séparées. Les exemples Claude 3 Sonnet du papier sont illustratifs et ne constituent aucun résultat validé.
+- *Open-weight n'est pas toujours fully open* : un modèle « à poids ouverts » peut ne pas exposer ses données ni son code d'entraînement ; il garantit la reproductibilité **computationnelle** (mêmes poids, mêmes sorties à backend et graine fixés), non la transparence complète sur l'origine du modèle. Nous déclarons le tier réellement disponible (et non le marketing du fournisseur).
+- *Les résultats peuvent dépendre du modèle* : un effet observé sur un modèle peut ne pas se reproduire sur un autre. La réplication cross-modèle et la classification des effets (model-invariant / open-model-only / proprietary-only / unstable) sont prévues pour rendre cette dépendance visible plutôt que de la masquer.
+- *Modèles propriétaires changeants* : un modèle accessible uniquement par API peut être modifié ou retiré sans accès complet aux poids, au tokenizer, aux données ou aux paramètres internes ; les résultats propriétaires sont donc traités comme une condition de référence secondaire, non comme socle des conclusions principales.
+- *Variations liées au backend local* : les modèles exécutés localement peuvent introduire des variations liées au backend d'inférence, au dtype, à la quantization et au matériel ; ces paramètres sont épinglés et archivés (révisions, hashes, image d'inférence) afin de borner et documenter cette variabilité.
 - *Variance et qualité des latents SAE* : les latents peuvent souffrir de fusion (feature hedging), d'absorption ou de splitting (Chanin et al., 2025), et certains features sont irréductiblement multidimensionnels (Engels et al., 2024), ce qui borne une notation fondée sur la composition additive de directions. Les résultats UNCOVERED dans le hard set peuvent refléter la qualité des latents plutôt que les limitations du système ; ils sont analysés séparément.
 - *Une baseline forte et déjà validée* : les Semantic Regexes ont déjà démontré concision, cohérence et bénéfice en étude utilisateur par rapport au NL ; surpasser cette baseline, en particulier en validité causale (qu'elle n'a pas évaluée), est un objectif exigeant et c'est le bon cadre de comparaison.
 - *Biais de la langue anglaise* : le protocole actuel annote des features de langue anglaise. Le système morphologique de MorphoRepr est agnostique à la langue en principe, mais son utilité pour des espaces de features multilingues ou à forte densité de code n'est pas testée.
@@ -863,6 +879,15 @@ as values.
 
 ## Annexe C : Modifications par rapport aux versions antérieures
 
+### C.2 — Modifications v0.28 → v0.29 (politique de modèles ouverts)
+
+Cette version ajoute une **politique de reproductibilité par modèles ouverts**, en réponse à l'appel d'un collectif scientifique à privilégier les modèles open-source dans la recherche pour garantir la reproductibilité des résultats. Changements :
+
+- **Méthodes — nouvelle Section 4.8 (Politique de modèles ouverts et reproductibilité).** Introduction de trois tiers de fournisseurs (A fully open / B open-weight / C proprietary API), avec la règle que les **claims primaires** sont calculés sur un modèle **Tier A/B** (modèle ouvert primaire) et que les résultats propriétaires (famille Claude) sont une **comparaison externe / condition secondaire**. Une affirmation forte n'est admissible que sur le modèle ouvert primaire, sinon elle est reformulée « dans la condition de référence propriétaire ». Réplication cross-modèle et classification des effets (model-invariant / open-model-only / proprietary-only / unstable). Politique d'archivage des artefacts (révisions, hashes, image d'inférence, dtype/quantization, paramètres de génération, prompts, sorties brutes) et distinction explicite open-source / open-weight (anti open-washing).
+- **Menaces à la validité externe (Section 7.4) enrichies** : open-weight ≠ fully open ; dépendance possible des résultats au modèle ; modèles propriétaires changeants sans accès complet ; variations liées au backend/dtype/quantization/matériel des modèles locaux.
+- **Protocole d'évaluation associé** : implémentation de la politique (table `model_runs`, `model_run_id` propagé aux sorties/métriques, gardes empêchant un claim primaire issu d'un modèle Tier C, exigence d'artefacts avant le full run, checklist de gel étendue). Voir la procédure de test v6.5.x (≥ v6.5.3).
+- **Compatibilité** : la condition propriétaire reste disponible (référence/robustesse) ; aucun résultat expérimental n'est revendiqué ; le statut « article de positionnement et protocole » est inchangé.
+
 ### C.1 — Modifications v0.27 → v0.28 (relecture critique consolidée)
 
 Cette version répond à une seconde relecture critique. Les changements principaux :
@@ -931,7 +956,7 @@ Cette version intègre une relecture critique consolidée. Les changements princ
 
 ---
 
-*Version 0.28 — Juin 2026*
+*Version 0.29 — Juin 2026*
 *Michaël Launay — michaellaunay@logikascium.com*
 *Logikascium EURL — https://www.logikascium.com*
 *GitHub : https://github.com/michaellaunay/morphorepr*

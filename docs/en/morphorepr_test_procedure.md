@@ -1,7 +1,7 @@
-# MorphoRepr — Complete Test Procedure (v6.4.1)
+# MorphoRepr — Complete Test Procedure (v6.5.3)
 ## Robust Experimental Infrastructure for Reproducible Evaluation
 
-*Version 6.4.1 — June 2026. Consistent with article v0.28. Micro-patch: pre-check before submission that request `custom_id`s match `batch_items` EXACTLY, and clarification of `assert_steering_ready` as a PRE-PILOT Phase 4 guard (non-blocking for a plumbing dev run without steering) — see Section 19. v6.4.1 remains a SPECIFICATION: `steer_feature()`, `run_intervention_controls()`, and `causal_scorer._load_pairs()` are non-implemented contracts (`run_in_pipeline` guards). It is considered solid for a plumbing dev run outside Phase 4.*
+*Version 6.5.3 — June 2026. Consistent with article v0.29 and later. Patch for the final multi-model leak in Phase 4: `steerer.run()` is now strictly model-aware; the query that loads `encoder` outputs filters on `ao.model_run_id` (see Section 23). No schema change relative to v6.5.2. Compatible with v6.5.x: `AnthropicProvider` is preserved and Phase 4 remains disabled by default. v6.5.3 remains a SPECIFICATION: `steer_feature()`, `run_intervention_controls()`, and `causal_scorer._load_pairs()` are non-implemented contracts protected by `run_in_pipeline` guards.*
 
 ---
 
@@ -45,6 +45,41 @@ The prediction/observation comparison for the primary metric is **deterministic*
 A `feature_index` alone is not sufficient: the same index may exist in several layers, SAE releases, or models. The canonical identity is `feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}`, with a uniqueness constraint. Within a single run (one model, one release, one set of layers), `feature_index` remains a convenient identifier for joins; `feature_uid` guarantees cross-layer/cross-SAE uniqueness and is propagated to downstream tables.
 
 ---
+
+
+## Model openness and reproducibility policy
+
+**Why a proprietary model alone is not enough.** A model accessible only through an API may be updated, deprecated, or removed without notice, without access to its weights, tokenizer, data, or internal parameters. A scientific conclusion that exists only behind such an API is not independently verifiable or replayable over time; it depends on a non-archivable artifact. Reproducibility therefore requires at least one condition to rely on a model whose exact artifact can be frozen and redistributed.
+
+**Why primary results must come from an open model.** For another laboratory to replay the experiment and obtain the same numbers, up to hardware variations, the model revision, tokenizer, backend and inference parameters must be known and archived. MorphoRepr's **primary claims** are therefore computed on a **Tier A fully open** or **Tier B open-weight** model; proprietary results serve as an **external comparison**.
+
+**Distinguishing open-source, open-weight and proprietary API.**
+- *Open-source / fully open (Tier A)*: weights + tokenizer + inference code + config + hyperparameters + license +, ideally, data information. This is the strongest reproducibility level.
+- *Open-weight (Tier B)*: public weights and tokenizer, but partly closed training data or pretraining details. This is **computationally reproducible** (same weights → same outputs with fixed backend/seed), but not necessarily fully transparent about origin.
+- *Proprietary API (Tier C)*: no weights and no tokenizer; behavior may change over time. Comparison/secondary use only.
+
+**Reporting Tier A/B and Tier C separately.** Metrics are reported **by model and by tier**. The main table explicitly compares the open primary model with the proprietary secondary model, with the difference and interpretation. A Tier C score is never merged into a “primary” score.
+
+**Avoiding open-washing.** A model that publishes only its weights, without sufficient data, code, or configuration, is **not** called “open source”; it is called *open-weight* (Tier B). The tier stored in `model_runs.provider_tier` must reflect what is actually available, not the provider's marketing.
+
+**Artifacts to archive for reproduction.** For every `model_run`: exact model and tokenizer revisions, `weights_sha256`, `tokenizer_sha256`, Docker/Conda image (`inference_env_hash`), CUDA version, backend version, `precision`/`quantization`, inference parameters (`generation_params_json`: temperature, top_p, seed, max_new_tokens), hashed prompts, and **raw outputs**. Without these artifacts, a run cannot claim reproducibility and cannot support a primary claim.
+
+**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.5.3**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
+
+```markdown
+## MorphoRepr — repository status
+- Paper: v0.29 (open-model policy; primary claims on an open model).
+- Test procedure: v6.5.3 (complete multi-model propagation, including Phase 4).
+- Causal-validity criterion: superiority over natural-language labels (feature-clustered paired-difference CI excluding 0) AND non-inferiority to Semantic Regexes (pre-registered δ margin). The old “non-overlapping CIs” criterion is OBSOLETE.
+
+## Reproducibility and open-weight models
+- MorphoRepr may use proprietary models (e.g. Anthropic) for development and secondary comparison.
+- Primary scientific claims are designed to be reproducible with open-weight or fully open models.
+- The protocol archives exact model revisions, hashes, inference backends, prompts, configurations, and raw outputs.
+- Inference goes through `ModelProvider` for the open primary model; `api_utils` is a LEGACY Anthropic Batch wrapper for the Tier C secondary condition only.
+- Anthropic results are reported as a secondary reference condition unless explicitly reproduced by an open-weight model.
+- Primary claims are restricted to Tier A/B models.
+```
 
 ## 1. Project Structure
 
@@ -3854,3 +3889,64 @@ Micro-patch following the seventh review. No schema change and no new methodolog
 **Unchanged caveats.**
 - `steer_feature()`, `run_intervention_controls()`, and `causal_scorer._load_pairs()` remain implementation contracts (`NotImplementedError`), guarded by `run_in_pipeline` flags.
 - The protocol is now stable enough; the next real task is implementation of `steer_feature()` and `causal_scorer._load_pairs()`.
+
+
+---
+
+## 20. Changelog v6.4.1 → v6.5
+
+Added an **open-model reproducibility layer** (Rule 11). This touches the SQLite schema, hence the minor version bump to v6.5. Compatibility with v6.4.1 is preserved: `batch_items` remains intact, `AnthropicProvider` is preserved, Phase 4 remains disabled by default, and `steer_feature()`, `run_intervention_controls()`, and `causal_scorer._load_pairs()` remain contracts.
+
+**Open-model policy.** Added Tier A / Tier B / Tier C provider classes; primary claims must be supported by Tier A/B models, while Anthropic and other proprietary API models are secondary comparison conditions.
+
+**Configuration.** Added `model_providers.primary_reproducible`, `secondary_proprietary`, and `optional_cross_model_replication`, with model revision, tokenizer revision, hashes, precision, quantization and inference-container hash fields.
+
+**Schema.** Added the `model_runs` table and propagated `model_run_id` conceptually to outputs, metrics, baselines, API usage and model-specific reporting.
+
+**Inference abstraction.** Added the `ModelProvider` interface and provider implementations for Anthropic, vLLM, Transformers and llama.cpp backends, with lazy imports.
+
+**Reporting.** Added per-model/per-tier reporting, cross-model robustness classification, and guards preventing a Tier C model from supporting a primary claim.
+
+---
+
+## 21. Changelog v6.5 → v6.5.1
+
+Corrective patch for the open-model reproducibility layer. The policy was sound, but `model_run_id` had been added to the schema without being fully propagated in several functions.
+
+**Full `model_run_id` propagation.** Added/required `model_run_id` in `batches`, `batch_items`, `agent_outputs`, `baselines`, `api_usage`, and `steering_results`. Introduced an explicit deterministic legacy `model_run` instead of relying on NULLs.
+
+**Batch resume and accounting.** Batch recovery is filtered by `model_run_id`; `batch_items` persists `model_run_id`; API costs are logged per model; uniqueness constraints include model identity where needed.
+
+**Legacy Anthropic wrapper.** `api_utils.py` is explicitly marked as a legacy Anthropic Batch API wrapper for the Tier C secondary condition only. Agents producing scientific outputs are expected to go through `ModelProvider`.
+
+**Paper markers.** The paper was cleaned to v0.29, with residual v0.28 markers removed.
+
+---
+
+## 22. Changelog v6.5.1 → v6.5.2
+
+Final propagation patch for multi-model execution. No schema change.
+
+**`load_features_not_processed` made model-aware.** The function now filters already-produced outputs by `(run_id, model_run_id, agent_name, run_number)`. Without this filter, a second model would incorrectly see features processed by the first model as already done.
+
+**`batch_items.model_run_id` fallback fixed.** Replaced `dict.get("model_run_id", model_run_id)` with `dict.get("model_run_id") or model_run_id`, so an item carrying `None` no longer inserts NULL into a NOT NULL column.
+
+**Legacy batch resume fixed.** `get_unconsumed_batch(model_run_id=None)` now resolves the explicit legacy model run before filtering.
+
+**Resume restores model-run IDs.** Added `restore_model_run_ids(run_id, config)` to rebuild `config["_runtime"]["model_run_ids"]` from the database on `--resume`, preventing later phases from falling back to the legacy model when a primary model already exists.
+
+**YAML description.** Updated to `Full frozen run MorphoRepr v0.29 / procedure v6.5.2 — 500 features` in that patch, later bumped to v6.5.3.
+
+---
+
+## 23. Changelog v6.5.2 → v6.5.3
+
+Patch for the **last multi-model leak in Phase 4**. No schema change.
+
+**`steerer.run()` made strictly model-aware.** The function already resolved the primary model's `model_run_id`, but the query loading `encoder` outputs from `agent_outputs` did not filter on it. The same `feature_uid`, annotated by several models, could therefore have caused a secondary or legacy annotation to be steered under the primary `model_run_id`. The loading logic is now extracted into `_load_encoded_random_features(run_id, model_run_id)`, whose query adds `AND ao.model_run_id = ?` with parameters `(run_id, model_run_id)`; `run()` calls this helper. Primary steering therefore uses only the primary model's annotations.
+
+**Test.** `test_steering_charge_uniquement_le_modele_primaire`: two `model_run_id`s in the same run, two `encoder` outputs for the same `feature_uid` with different expressions; the steering loader retrieves only the primary annotation, and symmetrically the secondary model sees only its own. No secondary or legacy output is steerable under the primary `model_run_id`.
+
+**Documentation residues.** Integrated README: “Test procedure: v6.5.3”. The v6.5.1 changelog is framed historically, and the paper now refers to “test procedure v6.5.x (≥ v6.5.3)”.
+
+**Phase 4 remains contractual.** `steer_feature()`, `run_intervention_controls()` and `causal_scorer._load_pairs()` remain **contracts** (`NotImplementedError`) behind `run_in_pipeline` flags. This patch makes the *loading* side of steering model-aware, but Phase 4 is not executable until `steer_feature()` is implemented.
