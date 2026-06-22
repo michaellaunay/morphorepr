@@ -425,8 +425,15 @@ This repository accompanies the v0.29 position paper and the v6.9.0 test procedu
 | Phase 4 — Causal scoring | `causal_scorer._load_pairs()` implemented (MorphoRepr + baselines, model/split/OOD-aware); paired comparisons runnable; baseline comparisons off by default; disabled in pipeline by default |
 | Phase 4 — Baseline prediction (Option B) | `nl_labels` + `semantic_regex` wired (`agents/baseline_predictor.py`); `keyword_tags` / `morphorepr_shuffled` not wired; off by default (`baseline_predictions.enabled=false`) |
 | Phase 4 — Intervention controls | Implemented for 5 controls (`random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only`); dedicated `intervention_control_results` table; secondary metrics only; `diffmean_reft` not implemented; off by default |
+| Phase 4 — End-to-end dev orchestrator | Planned (v6.10.0): explicit opt-in dev sequence `p4_steer → p4_predict → p4_predict_baselines → p4_score → p4_controls → p4_dev_summary`; phase order to be fixed (controls after scoring); off by default, no full-run auto-activation |
 | Phase 5 — Reporting | Planned |
 | Full scientific results | Not yet available |
+
+### Source of truth and roadmap (v6.10.0)
+
+Through v6.9.0, the test-procedure Markdown embedded the implementation code inline. **From v6.10.0 the Python repository becomes the canonical source of code** (docs-as-code): the Markdown is retained for the scientific protocol, methodological rules, architecture decisions (ADR), and changelog, while executable code, `pytest` tests, configs, prompts, and `db/schema.sql` live as real versioned files. No move to DOCX/PDF — Markdown plus versioned code/config is the right form for a reproducible scientific protocol.
+
+The next milestone (v6.10.0) materializes the repository described above, ports the existing tests to native `pytest` (with `conftest.py`), fixes the Phase 4 phase order (intervention controls must run **after** MorphoRepr prediction and scoring), and wires an opt-in end-to-end Phase 4 dev run via `configs/dev_phase4.yaml`, validated by a fakes-backed orchestration test plus a real opt-in test (`MORPHOREPR_RUN_DEV_PHASE4=1`). Phase 4 stays disabled by default in `configs/run_v1.yaml`; no full-run claim is auto-enabled. Rationale and the full plan: `docs/morphorepr_note_etape_orientation_v6.10.0.md`.
 
 ---
 
@@ -438,6 +445,7 @@ This repository accompanies the v0.29 position paper and the v6.9.0 test procedu
 - **arXiv:** https://arxiv.org/abs/2606.XXXXX
 - **PDF:** `docs/paper_v0.29.pdf`
 - **Test procedure:** `docs/morphorepr_test_procedure_v6.9.0.md`
+- **Orientation note (v6.10.0):** `docs/morphorepr_note_etape_orientation_v6.10.0.md`
 
 The v0.29 paper covers:
 
