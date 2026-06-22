@@ -1,7 +1,7 @@
-# MorphoRepr — Complete Test Procedure (v6.8.0)
+# MorphoRepr — Complete Test Procedure (v6.9.0)
 ## Robust Experimental Infrastructure for Reproducible Evaluation
 
-*Version 6.8.0 — June 2026. Consistent with paper (≥ v0.29). **Baseline predictions (Option B)** for `nl_labels` and `semantic_regex`: the new `agents/baseline_predictor.py` module produces canonical direction-prediction `agent_outputs` (agent names `predictor_nl_labels` / `predictor_semantic_regex`) from annotations stored in the `baselines` table, through the primary provider (Rule 11) and **separate prompts** that avoid MorphoRepr terminology. Steering is **not** re-run: only the prediction path differs, which makes the **primary paired comparisons** executable in a controlled dev run — superiority vs NL labels and non-inferiority vs Semantic Regexes. `causal_scorer.run()` now computes, when `run_baseline_comparisons=true`, each baseline's own score, the paired difference, the verdict and **coverage**, guarded by `assert_baseline_predictions_ready` (strict → `RuntimeError`; otherwise explicit skip **without a verdict**; never a false `pass`/`fail`). `keyword_tags` and `morphorepr_shuffled` remain **not wired**. No LLM judge is used in the primary metric. No schema change relative to v6.5.3 (`metrics.model_run_id` is populated for every model-specific metric). MorphoRepr `_load_pairs()` (v6.7.0), the multi-model layer and `steer_feature()` remain intact; `run_intervention_controls()` remains a contract; `causal_scoring.run_in_pipeline` and `baseline_predictions.enabled` remain `false` and are not automatically enabled. **No full scientific result is claimed.** See Section 27.*
+*Version 6.9.0 — June 2026. Consistent with paper (≥ v0.29). **Intervention controls**: `steerer.run_intervention_controls()` is now IMPLEMENTED for five causal controls — `random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only` — producing real `text_before`/`text_after` outputs scored through the **same deterministic path** as the treatment. **First schema change since v6.5.3**: a DEDICATED `intervention_control_results` table (a control may have both a target feature and a distinct control feature; never mixed into `steering_results`). `causal_scorer.load_intervention_control_pairs()` + `score_intervention_controls()` write **SECONDARY metrics only** (`intervention_control_macro_f1:<name>`, `intervention_control_paired_diff:<name>`, never the primary score), with a paired primary − control difference (feature-clustered bootstrap) and coverage. `diffmean_reft` remains **NOT implemented** (`NotImplementedError` if enabled, postponed). Strictly model/split/`intervention_space`-aware; OOD policy is respected. Guards: `assert_intervention_controls_ready` (MorphoRepr predictions + primary steering present) + `assert_steering_ready`. No LLM judge. `steer_feature()` (v6.6.1), `_load_pairs()` (v6.7.0), and baseline predictions Option B (v6.8.0) are **unchanged**; `steering.run_in_pipeline`, `causal_scoring.run_in_pipeline`, and `intervention_controls.run_in_pipeline` remain `false` and are not auto-enabled. **No full scientific result is claimed.** See Section 28.*
 ---
 
 ## Guiding Principles
@@ -37,8 +37,8 @@ The head-to-head causal-validity comparison (MorphoRepr vs NL labels vs Semantic
 **Rule 8 — Deterministic primary metric (without an LLM judge)**
 The prediction/observation comparison for the primary metric is **deterministic** : the direction predicted by the prediction agent is compared by **code** to the direction measured by the **pre-registered classifiers**. No LLM judge intervenes in the primary metric. An LLM judge (`qualitative_judge`) is reserved for qualitative analyses, ambiguous cases, and assisted audit (secondary metrics). The bootstrap is **clustered by feature** (the resampling unit is the feature, not the feature-property pair).
 
-**Rule 9 — Phase 4 is an implementation contract, not an implementation**
-`steer_feature()` contains placeholders and raises `NotImplementedError`. The pilot run **can only be launched** when, on a dev run with ≥ 5 features, `steer_feature()` actually produces : `text_before`, `text_after`, `activation_before`, `activation_after`, the achieved activation `delta`, and a verifiable `ood_flag` (Section 7, guard `assert_steering_ready`).
+**Rule 9 — Phase 4 remains guarded until validated by a dev run**
+`steer_feature()` is **implemented for the open-weight proxy path** (TransformerLens + SAE Lens, `residual_add_decoder`); the nnsight / production-model paths and the `sae_latent_clamp` intervention space raise `NotImplementedError`. A pilot run **may only be launched** once, on a dev run of ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` actually produces: `text_before`, `text_after`, `activation_before`, `activation_after`, the achieved activation `delta`, and a verifiable `ood_flag` (Section 7, `assert_steering_ready` guard). `causal_scorer._load_pairs()` is **implemented** (deterministic prediction/observation assembly, primary metric, model/split/OOD-aware — see the causal scorer section and the v6.7.0 changelog); `run_intervention_controls()` is **implemented** (v6.9.0) for five causal controls, producing **secondary** metrics only. Phase 4 is not scientifically validated yet: baseline comparisons and intervention controls remain disabled by default (`causal_scoring.run_in_pipeline=false`, `intervention_controls.run_in_pipeline=false`).
 
 **Rule 10 — Robust feature identity**
 A `feature_index` alone is not sufficient: the same index may exist in several layers, SAE releases, or models. The canonical identity is `feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}`, with a uniqueness constraint. Within a single run (one model, one release, one set of layers), `feature_index` remains a convenient identifier for joins; `feature_uid` guarantees cross-layer/cross-SAE uniqueness and is propagated to downstream tables.
@@ -63,21 +63,21 @@ A `feature_index` alone is not sufficient: the same index may exist in several l
 
 **Artifacts to archive for reproduction.** For every `model_run`: exact model and tokenizer revisions, `weights_sha256`, `tokenizer_sha256`, Docker/Conda image (`inference_env_hash`), CUDA version, backend version, `precision`/`quantization`, inference parameters (`generation_params_json`: temperature, top_p, seed, max_new_tokens), hashed prompts, and **raw outputs**. Without these artifacts, a run cannot claim reproducibility and cannot support a primary claim.
 
-**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.8.0**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
+**README section to update.** The README must now point to paper **v0.29** and procedure **v6.9.0**, and remove obsolete references (paper v0.26 / `paper_v0.26.pdf`, old go/no-go criterion based on “non-overlapping CIs” — replaced since v0.27 by superiority vs NL through a paired-difference CI excluding 0 and non-inferiority vs Semantic Regexes). Section to include:
 
 ```markdown
 ## MorphoRepr — repository status
 - Paper: v0.29 (open-model policy; primary claims on an open model).
-- Test procedure: v6.8.0 (`steer_feature()`, `causal_scorer._load_pairs()`, and baseline predictions for `nl_labels` / `semantic_regex` wired for controlled dev runs; Phase 4 disabled by default).
+- Test procedure: v6.9.0 (intervention controls implemented for 5 controls; dedicated intervention_control_results table; secondary metrics; Phase 4 disabled by default).
 - Causal-validity criterion: superiority over natural-language labels (feature-clustered paired-difference CI excluding 0) AND non-inferiority to Semantic Regexes (pre-registered δ margin). The old “non-overlapping CIs” criterion is OBSOLETE.
 
 ## Reproducibility and open-weight models
 - MorphoRepr may use proprietary models (e.g. Anthropic) for development and secondary comparison.
 - Primary scientific claims are designed to be reproducible with open-weight or fully open models.
-- The protocol archives exact model revisions, hashes, inference backends, prompts, configurations, and raw outputs.
-- Inference goes through `ModelProvider` for the open primary model; `api_utils` is a LEGACY Anthropic Batch wrapper for the Tier C secondary condition only.
-- Anthropic results are reported as a secondary reference condition unless explicitly reproduced by an open-weight model.
-- Primary claims are restricted to Tier A/B models.
+- The protocol archives exact model revisions, hashes, inference backends, prompts, configurations, and raw outputs (table `model_runs` + `model_run_id` propagated to batches/outputs/baselines/api_usage/steering_results; aggregated metrics may be cross-model).
+- Inference goes through `ModelProvider` (open primary model); `api_utils` is a LEGACY Anthropic Batch wrapper for the Tier C secondary condition only.
+- Anthropic results are reported as a secondary reference condition unless explicitly reproduced by an open-weight model. Strong claims ("MorphoRepr outperforms NL labels") require the open primary model; otherwise they are phrased "in the proprietary reference condition".
+- Primary claims are restricted to Tier A/B models (guard `assert_primary_claim_allowed`).
 ```
 
 ## 1. Project Structure
@@ -296,16 +296,34 @@ baselines:
   - morphorepr_shuffled
 
 # INTERVENTION controls (Phase 4) — beyond of the shuffled annotation control
+# INTERVENTION controls (Phase 4) — beyond the shuffled-annotation control
 intervention_controls:
-  # Disabled by default : the phase p4_controls is a CONTRAT not implemented (Section 7).
-  # Passer to true UNIQUEMENT once run_intervention_controls() actually implemented.
+  # v6.9.0: run_intervention_controls() is IMPLEMENTED for random_feature_same_layer,
+  # matched_activation_freq, random_direction_same_norm, negative_steering, and prompt_only.
+  # diffmean_reft remains NOT implemented (NotImplementedError if requested). The phase is
+  # DISABLED by default (run_in_pipeline=false); secondary metrics only (never the primary score).
   run_in_pipeline: false
-  random_feature_same_layer: true    # feature SAE random de same layer
-  random_direction_same_norm: true   # direction random de same norme
+  # Legacy boolean keys (compatibility): a control is executed if listed in controls_to_run,
+  # or, if controls_to_run is absent, if its boolean key is true.
+  random_feature_same_layer: true    # random SAE feature from the same layer
+  random_direction_same_norm: true   # random direction with the same norm as W_dec[target]
   matched_activation_freq: true      # feature with comparable activation frequency
-  negative_steering: true            # -magnitude when semantically relevant
-  prompt_only: true                  # label in the prompt, without steering
-  diffmean_reft: true                # baselines supervised DiffMean / ReFT (cf. AxBench)
+  negative_steering: true            # negative magnitude (target = control)
+  prompt_only: true                  # annotation in the prompt, without steering
+  diffmean_reft: true                # supervised DiffMean / ReFT baselines — NOT implemented in v6.9.0
+  # New v6.9.0 parameters
+  strict_controls: true              # enabled but missing/unimplemented control → RuntimeError;
+                                     # false → explicit skip WITHOUT verdict
+  score_controls: true               # score controls as secondary metrics after production
+  controls_to_run:                   # explicit list (takes precedence over boolean keys)
+    - random_feature_same_layer
+    - matched_activation_freq
+    - random_direction_same_norm
+    - negative_steering
+    - prompt_only
+  prompt_only_annotation_source: "morphorepr"   # annotation injected into the prompt (morphorepr|nl_description)
+  random_direction_seed_mode: "feature_uid"     # seed derived from (seed, target_feature_uid, control_name)
+  matched_activation_freq_log_eps: 1.0e-9       # eps for log-frequency matching
 
 # Shuffled control
 shuffle_control:
@@ -374,7 +392,7 @@ seed: 42
 
 ---
 
-## 3. Complete SQLite Schema (v6.4.1)
+## 3. Complete SQLite Schema (v6.9.0)
 
 ```sql
 -- db/schema.sql  —  Version 6.4.1, never modify after the full run
@@ -634,6 +652,45 @@ CREATE TABLE IF NOT EXISTS steering_duplicate_attempts (
     created_at                  TEXT NOT NULL
 );
 
+
+-- v6.9.0: FIRST schema change since v6.5.3. DEDICATED table for intervention controls
+-- (`run_intervention_controls`). It is separated from `steering_results` so that controls never
+-- pollute the primary path, and because a control may involve TWO features: the target feature
+-- whose MorphoRepr prediction is evaluated, and the control feature that is actually steered.
+-- `control_name` distinguishes controls; `target_feature_uid` ties the result to the evaluated
+-- feature. Secondary metrics only.
+CREATE TABLE IF NOT EXISTS intervention_control_results (
+    control_result_id     TEXT PRIMARY KEY,
+    run_id                TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id          TEXT NOT NULL REFERENCES model_runs(model_run_id),
+    target_feature_uid    TEXT NOT NULL REFERENCES features(feature_uid),
+    target_feature_index  INTEGER NOT NULL,
+    control_name          TEXT NOT NULL,
+    control_feature_uid   TEXT REFERENCES features(feature_uid),   -- NULL for random_direction/prompt_only
+    control_feature_index INTEGER,
+    intervention_space    TEXT,
+    magnitude             REAL,
+    magnitude_rel         REAL,
+    magnitude_key         TEXT NOT NULL,
+    probe_id              INTEGER NOT NULL,
+    probe_family          TEXT,
+    probe_category        TEXT,
+    generation_index      INTEGER DEFAULT 0,
+    text_before           TEXT NOT NULL,
+    text_after            TEXT,
+    activation_before     REAL,
+    activation_after      REAL,
+    achieved_delta        REAL,
+    ood_flag              INTEGER DEFAULT 0,
+    metadata_json         TEXT,            -- seed/norm/distance/truncated annotation depending on control
+    created_at            TEXT NOT NULL,
+    UNIQUE(
+        run_id, model_run_id, target_feature_uid, control_name,
+        control_feature_uid, intervention_space, magnitude_key,
+        probe_family, probe_category, probe_id, generation_index
+    )
+);
+
 CREATE TABLE IF NOT EXISTS api_usage (
     call_id         TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
@@ -715,6 +772,7 @@ CREATE INDEX IF NOT EXISTS idx_ao_feature  ON agent_outputs(feature_uid, agent_n
 CREATE INDEX IF NOT EXISTS idx_metrics     ON metrics(run_id, split, metric_name);
 CREATE INDEX IF NOT EXISTS idx_api_phase   ON api_usage(run_id, phase);
 CREATE INDEX IF NOT EXISTS idx_steering    ON steering_results(run_id, feature_uid, magnitude);
+CREATE INDEX IF NOT EXISTS idx_control_results ON intervention_control_results(run_id, model_run_id, target_feature_uid, control_name);
 CREATE INDEX IF NOT EXISTS idx_batches_run ON batches(run_id, phase, agent_name, run_number);
 ```
 
@@ -2388,25 +2446,30 @@ def _run_steering_batch(run_id: str, model,
 
 
 def run_intervention_controls(run_id: str, config: dict):
-    """Phase 4 — CONTRÔLES D'INTERVENTION (contract v6). Lit config['intervention_controls'].
+    """Phase 4 — INTERVENTION CONTROLS (v6.9.0).
 
-    Disabled by default (`run_in_pipeline: false`) → no-op with warning, so the
-    dev/pilot run not soit not blocked as long as the controls are not implemented. Mettre
-    `run_in_pipeline: true` once implemented ; as long as this is not done and it is
-    enabled, raises NotImplementedError (comme steer_feature)."""
-    ic = config.get("intervention_controls", {})
-    if not ic.get("run_in_pipeline", False):
-        logger.warning("p4_controls disabled (intervention_controls.run_in_pipeline=false) — ignored.")
-        return
-    enabled = [name for name, on in ic.items() if on and name != "run_in_pipeline"]
-    raise NotImplementedError(
-        "run_intervention_controls() not implemented. Controls declared to implement : "
-        + ", ".join(enabled) + ". "
-        "Chaque control (random_feature_same_layer, random_direction_same_norm, "
-        "matched_activation_freq, negative_steering, prompt_only, diffmean_reft) doit "
-        "produce results scored by the SAME deterministic path as the treatment. "
-        "As long as it is not implemented, garder run_in_pipeline=false."
-    )
+    IMPLEMENTED for:
+      - random_feature_same_layer
+      - matched_activation_freq
+      - random_direction_same_norm
+      - negative_steering
+      - prompt_only
+
+    Results are written to intervention_control_results, never to steering_results.
+    The outputs are scored only as SECONDARY metrics; they never replace the primary
+    causal score. The phase is disabled by default (run_in_pipeline=false), in which
+    case the function returns a no-op status. If diffmean_reft is explicitly requested,
+    it raises NotImplementedError before any generation.
+    """
+    # Implementation outline:
+    # 1. Return {"status": "disabled"} if intervention_controls.run_in_pipeline=false.
+    # 2. Validate requested controls; fail early on diffmean_reft or unknown controls.
+    # 3. Check assert_steering_ready() and assert_intervention_controls_ready().
+    # 4. Load target features from the primary split and primary model_run_id.
+    # 5. Produce control outputs with the same probe sets and magnitude policy as steering.
+    # 6. Insert idempotently into intervention_control_results.
+    # 7. Optionally call causal_scorer.score_intervention_controls() for secondary metrics.
+    ...
 ```
 
 ---
@@ -4266,7 +4329,7 @@ Functional extension: **real implementation of `causal_scorer._load_pairs()` for
 
 **Tests added/extended.** `tests/test_causal_scorer.py` covers prediction extraction, direction normalization, rejection of invalid directions, deterministic observation, `_primary_magnitude_key()`, OOD filtering, model-aware and split-aware selection, intervention-space filtering, missing predictor/steering errors, final pair assembly, and a minimal `run()` writing `causal_macro_f1_global` with `metrics.model_run_id` populated while skipping baselines.
 
-**Remaining limits.** Baseline predictions are not wired yet; no superiority/non-inferiority verdict is produced. `run_intervention_controls()` remains a contract. `causal_scoring.run_in_pipeline=false` remains the default. A full scientific causal validation is not claimed, and paper v0.29 scientific claims remain unchanged.
+**Remaining limits.** Baseline predictions are not wired yet; no superiority/non-inferiority verdict is produced. `diffmean_reft` remains the only intervention-control contract. `causal_scoring.run_in_pipeline=false` remains the default. A full scientific causal validation is not claimed, and paper v0.29 scientific claims remain unchanged.
 
 Recommended test commands:
 
@@ -4278,23 +4341,45 @@ pytest tests/test_steer_feature.py tests/test_causal_scorer.py -v
 MORPHOREPR_RUN_DEV_CAUSAL=1 pytest tests/test_pipeline_e2e.py -v -k causal
 ```
 
-## Current v6.8.0 status summary
 
-`steer_feature()` is implemented for the open-weight proxy path, and `causal_scorer._load_pairs()` is implemented for a minimal MorphoRepr causal dev score. The pipeline still does not claim full causal validation: baseline comparisons remain off by default, `run_intervention_controls()` is not implemented, and Phase 4 remains disabled in the default pipeline configuration. The next major tasks are wiring baseline prediction outputs (Option B) and implementing intervention controls.
+## Current v6.9.0 status summary
 
+`steer_feature()` is implemented for the open-weight proxy path, `causal_scorer._load_pairs()` is implemented for deterministic MorphoRepr causal scoring, baseline prediction Option B is wired for `nl_labels` and `semantic_regex`, and `run_intervention_controls()` is implemented for five controls on the proxy path.
+
+The remaining Phase 4 intervention-control contract is `diffmean_reft` only. `keyword_tags` and `morphorepr_shuffled` remain not wired in the baseline-prediction path. All Phase 4 execution flags remain off by default, and no full scientific causal validation is claimed.
 
 ---
 
-## 27. Changelog v6.7.0 → v6.8.0
+## 28. Changelog v6.8.0 → v6.9.0
 
-**Baseline prediction Option B.** Adds baseline prediction outputs for `nl_labels` and `semantic_regex` through `agents/baseline_predictor.py`. The module reads baseline annotations from the `baselines` table and writes canonical direction predictions to `agent_outputs` under `predictor_nl_labels` and `predictor_semantic_regex`.
+**Objective.** Implement `steerer.run_intervention_controls()` for real intervention controls scored through the same deterministic path as the treatment. This strengthens the causal credibility of the MorphoRepr score by testing that the observed effect is not merely due to generating two texts, applying a random residual perturbation, steering a random feature from the same layer, steering a feature with comparable activation frequency, inserting the annotation into the prompt, or a general artifact of the model/probes. **No full scientific validation is claimed**: v6.9.0 only makes the controls executable in a controlled dev run.
 
-**Separate baseline prompts.** Adds `prompts/predictor_nl_labels_v1.txt` and `prompts/predictor_semantic_regex_v1.txt`. These prompts do not use MorphoRepr terminology. The NL baseline is scored from natural-language labels; the Semantic Regex baseline is scored from the regex annotation itself.
+**Schema change — FIRST since v6.5.3.** Adds the dedicated `intervention_control_results` table and `idx_control_results` index. The schema goes from 16 to **17 tables**. The retained design uses a dedicated table rather than `steering_results`, because a control may involve both a `target_feature_uid` (whose MorphoRepr prediction is evaluated) and a `control_feature_uid` (the feature actually steered), which `steering_results` does not represent cleanly. The table is never confused with the primary path; `control_name` distinguishes the controls. The `metrics` table is unchanged.
 
-**Paired comparisons are now runnable in controlled dev runs.** With `baseline_predictions.enabled=true` followed by `causal_scoring.run_baseline_comparisons=true`, the scorer can compute the MorphoRepr score, the baseline scores, paired differences, coverage, superiority vs NL labels and non-inferiority vs Semantic Regexes.
+**Implemented controls (5).**
 
-**No fake baseline predictions.** Missing annotations or missing prediction outputs trigger `RuntimeError` in strict mode. In non-strict mode, a baseline may be explicitly skipped, but no verdict is produced. There is never a false `pass` or `fail` for an absent baseline.
+1. `random_feature_same_layer`: steers a deterministic random SAE feature from the same layer as the target feature.
+2. `matched_activation_freq`: steers a same-layer feature with the closest activation frequency in log space.
+3. `random_direction_same_norm`: applies a deterministic random residual direction normalized to the same norm as `W_dec[target]`.
+4. `negative_steering`: applies the same target-feature steering with the opposite magnitude (`rel:-1.0` when the primary magnitude is `rel:1.0`).
+5. `prompt_only`: injects the annotation into the prompt without installing a steering hook.
 
-**Still not wired.** `keyword_tags` and `morphorepr_shuffled` remain explicitly unsupported in the baseline-prediction path. `run_intervention_controls()` remains a contract.
+`diffmean_reft` remains explicitly unsupported and raises `NotImplementedError` if requested.
 
-**Default safety.** `baseline_predictions.enabled=false`, `causal_scoring.run_baseline_comparisons=false`, and `causal_scoring.run_in_pipeline=false` remain the defaults. No full causal validation and no published scientific result are claimed in v6.8.0. Paper v0.29 scientific claims remain unchanged.
+**Readiness guards.** Adds `assert_intervention_controls_ready()`, which verifies that MorphoRepr predictions and primary `steering_results` exist for the selected `run_id`, `model_run_id`, split, `magnitude_key`, and `intervention_space` before controls are generated.
+
+**Secondary scoring.** Adds `causal_scorer.load_intervention_control_pairs()` and `causal_scorer.score_intervention_controls()`. Control outputs are scored with the same deterministic robust-property classifiers as the treatment, but only as **secondary metrics**: `intervention_control_macro_f1:<control_name>` and `intervention_control_paired_diff:<control_name>`. The primary causal score and baseline comparisons remain unchanged.
+
+**Safety and defaults.** `intervention_controls.run_in_pipeline=false` remains the default. Controls are not auto-enabled. OOD policy is respected, results are strictly model/split/`intervention_space`-aware, and missing or unsupported controls never produce a false verdict.
+
+**Tests.** Adds deterministic tests for no-op behavior, control selection, matched-frequency selection, deterministic random directions, negative steering, prompt-only behavior, idempotent insertion, model-aware and split-aware filtering, OOD filtering, control pair loading, secondary scoring, paired primary-vs-control differences, missing prerequisites, no-candidate behavior, and unsupported `diffmean_reft`.
+
+Recommended test commands:
+
+```bash
+pytest tests/test_intervention_controls.py -v
+pytest tests/test_steer_feature.py tests/test_causal_scorer.py tests/test_intervention_controls.py -v
+
+# Optional controlled dev integration test if implemented:
+MORPHOREPR_RUN_DEV_CONTROLS=1 pytest tests/test_pipeline_e2e.py -v -k intervention_controls
+```

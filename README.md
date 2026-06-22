@@ -10,7 +10,7 @@
 [![Paper: CC BY 4.0](https://img.shields.io/badge/Paper-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Paper v0.29](https://img.shields.io/badge/paper-v0.29-blue.svg)]()
-[![Procedure v6.8.0](https://img.shields.io/badge/test%20procedure-v6.8.0-orange.svg)]()
+[![Procedure v6.9.0](https://img.shields.io/badge/test%20procedure-v6.9.0-orange.svg)]()
 [![Status: Specification](https://img.shields.io/badge/status-position%20paper%20%2B%20test%20specification-orange.svg)]()
 
 ---
@@ -29,7 +29,7 @@ Read approximately as: *“not having acted physically / action-negation in a pa
 
 MorphoRepr does **not** claim to decode the internal representations of LLMs. It encodes structured, inspectable hypotheses about SAE features. These hypotheses must be evaluated through fidelity tests, activation prediction, and causal intervention experiments on a model where SAE activations are accessible.
 
-The current paper is **v0.29**. The current test procedure is **v6.8.0**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
+The current paper is **v0.29**. The current test procedure is **v6.9.0**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
 
 Starting with paper v0.29 and procedure v6.5.x, the protocol adopts an **open-weight reproducibility policy**: primary scientific claims are designed to be reproducible with open-weight or fully open models, and proprietary models (e.g. Anthropic) are used only as a secondary reference / comparison condition. See [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models).
 
@@ -41,7 +41,7 @@ Starting with paper v0.29 and procedure v6.5.x, the protocol adopts an **open-we
 - [Key Concepts](#key-concepts)
 - [Evaluation Protocol](#evaluation-protocol)
 - [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models)
-- [Test Procedure v6.8.0](#test-procedure-v680)
+- [Test Procedure v6.9.0](#test-procedure-v690)
 - [Repository Structure](#repository-structure)
 - [Current Status](#current-status)
 - [Paper](#paper)
@@ -125,7 +125,7 @@ A central correction in the v6 test procedure is the use of a robust feature ide
 feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}
 ```
 
-`feature_index` alone is not a stable identity: the same index can appear in multiple layers, hooks, SAE releases, or models. In the v6.8.0 procedure, `feature_uid` is the logical key used across agent outputs, baselines, shuffle controls, steering results, batch mappings, and user-study records.
+`feature_index` alone is not a stable identity: the same index can appear in multiple layers, hooks, SAE releases, or models. In the v6.9.0 procedure, `feature_uid` is the logical key used across agent outputs, baselines, shuffle controls, steering results, batch mappings, and user-study records.
 
 ### Model-run identity
 
@@ -141,7 +141,7 @@ model_run_id  →  one (provider, model, revision, inference environment) within
 
 ## Evaluation Protocol
 
-The v0.29 paper and v6.8.0 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
+The v0.29 paper and v6.9.0 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
 
 ### Feature splits
 
@@ -244,11 +244,11 @@ For each `model_run`, the protocol archives: exact model and tokenizer revisions
 
 ---
 
-## Test Procedure v6.8.0
+## Test Procedure v6.9.0
 
-The current test procedure is **v6.8.0**. It is a robust experimental specification, not yet a completed implementation of Phase 4.
+The current test procedure is **v6.9.0**. It is a robust experimental specification, not yet a completed implementation of Phase 4.
 
-### What v6.8.0 stabilizes
+### What v6.9.0 stabilizes
 
 The procedure includes:
 
@@ -277,6 +277,7 @@ The procedure includes:
 - a real `steer_feature()` for the open-weight proxy path (TransformerLens + SAE Lens, `residual_add_decoder`): real before/after generations, measured latent activations, and `achieved_delta`; `sae_latent_clamp` and the production-model path raise explicit `NotImplementedError`;
 - a real `causal_scorer._load_pairs()` assembling deterministic prediction/observation pairs for the primary macro-F1 (model/split/OOD-aware, no LLM judge);
 - **baseline prediction (Option B)** for `nl_labels` and `semantic_regex` (new `agents/baseline_predictor.py`): baseline-specific prompts produce canonical direction predictions, making the **paired primary comparisons** (superiority vs NL, non-inferiority vs Semantic Regexes) runnable on a controlled dev run; baseline comparisons remain off by default;
+- **real intervention controls** for the open-weight proxy path — `random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, and `prompt_only` — stored in the dedicated `intervention_control_results` table and scored **only as secondary metrics** (`diffmean_reft` not implemented; off by default);
 - Phase 4 guards so that dev runs can execute outside steering/scoring.
 
 ### Current Phase 4 status
@@ -285,13 +286,15 @@ The procedure includes:
 
 `causal_scorer._load_pairs()` is **implemented** (v6.8.0): it assembles the deterministic prediction/observation pairs `(feature_uid, robust property)` for the primary macro-F1, strictly **model-aware, split-aware and OOD-aware**, reading predictions from `agent_outputs` and applying the deterministic classifiers to the steering `text_before`/`text_after`. No LLM judge is used in the primary metric. This enables a **minimal causal dev run for MorphoRepr**.
 
-Still a contract:
+Remaining Phase 4 contract:
 
-- `run_intervention_controls()`.
+- `diffmean_reft` (supervised DiffMean/ReFT intervention control) remains **not implemented** (raises `NotImplementedError` if enabled).
 
 Baseline prediction (**Option B**, v6.8.0) is **wired for `nl_labels` (superiority) and `semantic_regex` (non-inferiority)** via `agents/baseline_predictor.py`: from the annotations in the `baselines` table, baseline-specific prompts (no MorphoRepr terminology) produce canonical direction predictions stored in `agent_outputs` under `predictor_nl_labels` / `predictor_semantic_regex`. The steering is **not** re-run — only the prediction path differs — which is what makes the paired comparison valid. With `causal_scoring.run_baseline_comparisons=true` on a controlled dev run, `causal_scorer.run()` then computes each baseline's own score, the paired difference, the verdict and the coverage, guarded by `assert_baseline_predictions_ready()` (strict → `RuntimeError`; otherwise explicit skip **without a verdict** — never a false `pass`/`fail`). `keyword_tags` and `morphorepr_shuffled` remain **not wired** (explicit `NotImplementedError`). Baseline comparisons stay **off by default** (`run_baseline_comparisons=false`); no LLM judge is used in the primary metric, and **no full scientific result is claimed**.
 
-Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`, `causal_scoring.run_in_pipeline=false`) and is **not auto-enabled**; `assert_steering_ready()` must pass on a controlled dev run before any pilot/full run with steering. The v6.8.0 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering and a minimal MorphoRepr causal score on the open-weight proxy**, but it does **not** claim full causal validation: no published scientific result is asserted yet. The scientific claims of the paper (v0.29) are unchanged.
+Intervention controls (**v6.9.0**) are now **implemented** via `steerer.run_intervention_controls()` for five causal controls — `random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only` — producing real `text_before`/`text_after` scored by the **same deterministic path** as the treatment. This is the **first schema change since v6.5.3**: a dedicated `intervention_control_results` table (a control sometimes has a distinct target feature and control feature; never mixed into `steering_results`). `causal_scorer.load_intervention_control_pairs()` + `score_intervention_controls()` write **secondary metrics only** (`intervention_control_macro_f1:<name>`, `intervention_control_paired_diff:<name>` — never the primary score), with the paired primary − control difference (feature-clustered bootstrap) and coverage. `diffmean_reft` is **not implemented** (`NotImplementedError` if enabled). Strictly model/split/`intervention_space`-aware; OOD policy respected; no LLM judge. Controls stay **off by default** (`intervention_controls.run_in_pipeline=false`).
+
+Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`, `causal_scoring.run_in_pipeline=false`, `intervention_controls.run_in_pipeline=false`) and is **not auto-enabled**; `assert_steering_ready()` must pass on a controlled dev run before any pilot/full run with steering. The v6.9.0 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering, a minimal MorphoRepr causal score, baseline comparisons, and intervention controls on the open-weight proxy**, but it does **not** claim full causal validation: no published scientific result is asserted yet. The scientific claims of the paper (v0.29) are unchanged.
 
 ---
 
@@ -372,6 +375,7 @@ morphorepr-pipeline/
 │   ├── test_steer_feature.py
 │   ├── test_causal_scorer.py
 │   ├── test_baseline_predictions.py
+│   ├── test_intervention_controls.py
 │   └── test_pipeline_e2e.py
 ├── data/
 │   └── probes/
@@ -393,16 +397,16 @@ morphorepr-pipeline/
 
 ## Current Status
 
-This repository accompanies the v0.29 position paper and the v6.8.0 test procedure. No full experimental run has been completed yet.
+This repository accompanies the v0.29 position paper and the v6.9.0 test procedure. No full experimental run has been completed yet.
 
 | Component | Status |
 |-----------|--------|
 | Paper v0.29 | Written / current working version |
-| Test procedure v6.8.0 | Stable for dev plumbing; steer_feature() implemented for the open-weight proxy path |
+| Test procedure v6.9.0 | Stable for dev plumbing; steer_feature(), causal scoring, baseline predictions, and intervention controls implemented (proxy path) |
 | Formal grammar and parser specification | Available |
 | Predefined morpheme inventory | Available |
 | Free-root governance | Specified |
-| SQLite schema (incl. `model_runs`) | Specified (unchanged in v6.8.0) |
+| SQLite schema (incl. `model_runs`) | Specified; **first schema change since v6.5.3** in v6.9.0 (added `intervention_control_results`) |
 | `feature_uid` identity model | Specified and propagated |
 | `model_run_id` multi-model identity | Specified and propagated (NOT NULL) |
 | Open-weight reproducibility policy (Rule 11) | Specified |
@@ -420,7 +424,7 @@ This repository accompanies the v0.29 position paper and the v6.8.0 test procedu
 | Phase 4 — Steering | `steer_feature()` implemented for the open-weight proxy path; disabled by default |
 | Phase 4 — Causal scoring | `causal_scorer._load_pairs()` implemented (MorphoRepr + baselines, model/split/OOD-aware); paired comparisons runnable; baseline comparisons off by default; disabled in pipeline by default |
 | Phase 4 — Baseline prediction (Option B) | `nl_labels` + `semantic_regex` wired (`agents/baseline_predictor.py`); `keyword_tags` / `morphorepr_shuffled` not wired; off by default (`baseline_predictions.enabled=false`) |
-| Phase 4 — Intervention controls | Contract only (`run_intervention_controls()` not implemented) |
+| Phase 4 — Intervention controls | Implemented for 5 controls (`random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only`); dedicated `intervention_control_results` table; secondary metrics only; `diffmean_reft` not implemented; off by default |
 | Phase 5 — Reporting | Planned |
 | Full scientific results | Not yet available |
 
@@ -433,7 +437,7 @@ This repository accompanies the v0.29 position paper and the v6.8.0 test procedu
 - **HAL:** https://hal.science/hal-05649380
 - **arXiv:** https://arxiv.org/abs/2606.XXXXX
 - **PDF:** `docs/paper_v0.29.pdf`
-- **Test procedure:** `docs/morphorepr_test_procedure_v6.8.0.md`
+- **Test procedure:** `docs/morphorepr_test_procedure_v6.9.0.md`
 
 The v0.29 paper covers:
 

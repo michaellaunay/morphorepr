@@ -1,7 +1,7 @@
-# MorphoRepr — Procédure de test complète (v6.8.0)
+# MorphoRepr — Procédure de test complète (v6.9.0)
 ## Infrastructure expérimentale robuste pour une évaluation reproductible
 
-*Version 6.8.0 — Juin 2026. Cohérente avec l'article (≥ v0.29). **Prédictions baselines (Option B)** pour `nl_labels` et `semantic_regex` : nouveau module `agents/baseline_predictor.py` qui produit des `agent_outputs` de prédiction de directions au format canonique (agent_name `predictor_nl_labels` / `predictor_semantic_regex`) à partir des annotations de la table `baselines`, via le provider primaire (Règle 11) et des **prompts séparés** (aucune terminologie MorphoRepr). Le steering n'est **pas** refait : seul le chemin de prédiction diffère, ce qui rend les **comparaisons appariées primaires** exécutables en dev run contrôlé — supériorité vs NL, non-infériorité vs Semantic Regexes. `causal_scorer.run()` calcule désormais, sous `run_baseline_comparisons=true`, le score propre de chaque baseline, la différence appariée, le verdict et la **couverture**, avec une garde `assert_baseline_predictions_ready` (strict → `RuntimeError` ; sinon skip **sans verdict** ; jamais de faux `pass`/`fail`). `keyword_tags` et `morphorepr_shuffled` restent **non branchées**. Aucun juge LLM dans le primaire. Aucun changement de schéma vs v6.5.3 (`metrics.model_run_id` renseigné pour toute métrique model-specific). `_load_pairs()` MorphoRepr (v6.7.0), couche multi-modèle et `steer_feature()` intacts ; `run_intervention_controls()` reste un contrat ; `causal_scoring.run_in_pipeline` et `baseline_predictions.enabled` restent `false` (non auto-activés). **Aucun full scientific result revendiqué.** Voir Section 27.*
+*Version 6.9.0 — Juin 2026. Cohérente avec l'article (≥ v0.29). **Contrôles d'intervention** : `steerer.run_intervention_controls()` est désormais IMPLÉMENTÉ pour cinq contrôles causaux — `random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only` — produisant de vrais `text_before`/`text_after` scorés par le **même chemin déterministe** que le traitement. **Premier changement de schéma depuis v6.5.3** : nouvelle table DÉDIÉE `intervention_control_results` (un contrôle a parfois une target feature ET une control feature distinctes ; jamais mélangée à `steering_results`). `causal_scorer.load_intervention_control_pairs()` + `score_intervention_controls()` écrivent des **métriques SECONDAIRES** uniquement (`intervention_control_macro_f1:<nom>`, `intervention_control_paired_diff:<nom>`, jamais le score primaire), avec différence appariée primaire − contrôle (bootstrap clusterisé par feature) et couverture. `diffmean_reft` reste **NON implémenté** (`NotImplementedError` si activé, reporté). Strictement model/split/`intervention_space`-aware ; politique OOD respectée. Garde `assert_intervention_controls_ready` (prédictions MorphoRepr + steering primaire présents) + `assert_steering_ready`. Aucun juge LLM. `steer_feature()` (v6.6.1), `_load_pairs()` (v6.7.0) et prédictions baselines Option B (v6.8.0) **intacts** ; `steering.run_in_pipeline`, `causal_scoring.run_in_pipeline` et `intervention_controls.run_in_pipeline` restent `false` (non auto-activés). **Aucun full scientific result revendiqué.** Voir Section 28.*
 
 ---
 
@@ -39,7 +39,7 @@ Le tête-à-tête de validité causale (MorphoRepr vs étiquettes NL vs Semantic
 La comparaison prédiction/observation de la métrique primaire est **déterministe** : la direction prédite par l'agent de prédiction est comparée par **code** à la direction mesurée par les **classifieurs pré-enregistrés**. Aucun juge LLM n'intervient dans la métrique primaire. Un juge LLM (`qualitative_judge`) est réservé aux analyses qualitatives, cas ambigus et audit assisté (métriques secondaires). Le bootstrap est **clusterisé par feature** (l'unité de rééchantillonnage est la feature, pas le couple feature-propriété).
 
 **Règle 9 — La Phase 4 reste gardée tant qu'un dev run ne l'a pas validée**
-`steer_feature()` est **implémenté pour le chemin proxy open-weight** (TransformerLens + SAE Lens, `residual_add_decoder`) ; les chemins nnsight / modèle de production et l'espace `sae_latent_clamp` lèvent `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`). `causal_scorer._load_pairs()` est **implémenté** (assemblage déterministe prédiction/observation, métrique primaire, model/split/OOD-aware — Sections 8 et 27) ; `run_intervention_controls()` reste un contrat. La Phase 4 n'est pas scientifiquement validée (comparaisons baselines désactivées par défaut, `causal_scoring.run_in_pipeline=false`).
+`steer_feature()` est **implémenté pour le chemin proxy open-weight** (TransformerLens + SAE Lens, `residual_add_decoder`) ; les chemins nnsight / modèle de production et l'espace `sae_latent_clamp` lèvent `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`). `causal_scorer._load_pairs()` est **implémenté** (assemblage déterministe prédiction/observation, métrique primaire, model/split/OOD-aware — voir le scoreur causal §8 bis et le changelog v6.7.0) ; `run_intervention_controls()` est **implémenté** (v6.9.0) pour cinq contrôles causaux, produisant des métriques **secondaires** (Section 28). La Phase 4 n'est pas scientifiquement validée (comparaisons baselines et contrôles désactivés par défaut, `causal_scoring.run_in_pipeline=false`, `intervention_controls.run_in_pipeline=false`).
 
 **Règle 10 — Identité de feature robuste**
 Un `feature_index` seul ne suffit pas : le même index peut exister dans plusieurs couches, releases SAE ou modèles. L'identité canonique est `feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}`, avec contrainte d'unicité. Au sein d'un run unique (un modèle, une release, un ensemble de couches), `feature_index` reste un identifiant pratique pour les jointures ; `feature_uid` garantit l'unicité cross-couche/cross-SAE et est propagé aux tables aval.
@@ -74,12 +74,12 @@ Les conclusions scientifiques principales ne doivent pas dépendre uniquement d'
 
 **Artefacts à archiver pour la reproduction.** Pour chaque `model_run` : révision exacte du modèle et du tokenizer, `weights_sha256`, `tokenizer_sha256`, image Docker/Conda (`inference_env_hash`), version CUDA, version du backend, `precision`/`quantization`, paramètres d'inférence (`generation_params_json` : température, top_p, seed, max_new_tokens), prompts (hashés, Règle 3) et **sorties brutes**. Sans ces artefacts, un run ne peut pas prétendre à la reproductibilité et ne peut pas porter de claim primaire (garde `validate_model_providers`, Section 5 bis).
 
-**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.8.0**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
+**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.9.0**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
 
 ```markdown
 ## MorphoRepr — état du dépôt
 - Article : v0.29 (politique de modèles ouverts ; claims primaires sur modèle ouvert).
-- Procédure de test : v6.8.0 (prédictions baselines Option B nl_labels/semantic_regex câblées pour dev run ; Phase 4 désactivée par défaut).
+- Procédure de test : v6.9.0 (contrôles d'intervention implémentés pour 5 contrôles ; table dédiée intervention_control_results ; métriques secondaires ; Phase 4 désactivée par défaut).
 - Critère de validité causale : supériorité vs étiquettes NL (IC de la différence appariée,
   clusterisé par feature, excluant 0) ET non-infériorité vs Semantic Regexes (marge δ
   pré-enregistrée). NB : l'ancien critère « IC non chevauchants » est OBSOLÈTE.
@@ -175,6 +175,7 @@ morphorepr-pipeline/
 │   ├── test_steer_feature.py        ← steer_feature (chemin proxy open-weight, durci v6.6.1)
 │   ├── test_causal_scorer.py        ← scoring causal + _load_pairs (assemblage prédiction/observation, v6.7.0)
 │   ├── test_baseline_predictions.py ← prédictions baselines Option B (nl_labels, semantic_regex, v6.8.0)
+│   ├── test_intervention_controls.py ← contrôles d'intervention (5 contrôles, table dédiée, v6.9.0)
 │   └── test_pipeline_e2e.py
 ├── orchestrator.py
 ├── requirements.txt
@@ -199,7 +200,7 @@ morphorepr-pipeline/
 # configs/run_v1.yaml
 
 run_id_prefix: "morphorepr_v1"
-description: "Full frozen run MorphoRepr v0.29 / procedure v6.8.0 — 500 features"
+description: "Full frozen run MorphoRepr v0.29 / procedure v6.9.0 — 500 features"
 
 # Reproductibilité
 git_commit: "FILL_BEFORE_LAUNCH"    # vérifié contre le HEAD Git réel à l'init
@@ -314,8 +315,8 @@ steering:
   # (nl_labels, semantic_regex) sont câblés. Phase 4 reste néanmoins DÉSACTIVÉE par défaut tant
   # que (a) `assert_steering_ready()` n'a pas été validé sur un dev run (proxy_model.enabled=true)
   # ET (b) les comparaisons baselines / contrôles d'intervention n'ont pas été exécutés dans un
-  # dev run contrôlé (baseline_predictions.enabled + run_baseline_comparisons ; run_intervention_controls
-  # reste un contrat). Passer à true UNIQUEMENT après (a).
+  # dev run contrôlé (baseline_predictions.enabled + run_baseline_comparisons ;
+  # intervention_controls.run_in_pipeline — IMPLÉMENTÉ en v6.9.0, off par défaut). Passer à true UNIQUEMENT après (a).
   run_in_pipeline: false
   # Magnitude PRIMAIRE normalisée par feature : multiple du 99e percentile (activation_p99).
   # La magnitude absolue +5 (Anthropic, 2024) est conservée comme condition SECONDAIRE/historique.
@@ -410,15 +411,32 @@ baselines:
 
 # Contrôles d'INTERVENTION (Phase 4) — au-delà du contrôle d'annotation mélangé
 intervention_controls:
-  # Désactivé par défaut : la phase p4_controls est un CONTRAT non implémenté (Section 7).
-  # Passer à true UNIQUEMENT une fois run_intervention_controls() réellement implémenté.
+  # v6.9.0 : run_intervention_controls() est IMPLÉMENTÉ pour random_feature_same_layer,
+  # matched_activation_freq, random_direction_same_norm, negative_steering, prompt_only.
+  # diffmean_reft reste NON implémenté (NotImplementedError si demandé). Phase DÉSACTIVÉE par
+  # défaut (run_in_pipeline=false) ; métriques SECONDAIRES uniquement (jamais le score primaire).
   run_in_pipeline: false
+  # Clés booléennes héritées (compat) : un contrôle est exécuté s'il est listé dans controls_to_run
+  # OU (à défaut de controls_to_run) si sa clé booléenne est true.
   random_feature_same_layer: true    # feature SAE aléatoire de même couche
-  random_direction_same_norm: true   # direction aléatoire de même norme
+  random_direction_same_norm: true   # direction aléatoire de même norme que W_dec[target]
   matched_activation_freq: true      # feature à fréquence d'activation comparable
-  negative_steering: true            # -magnitude lorsque sémantiquement pertinent
+  negative_steering: true            # -magnitude (target = control)
   prompt_only: true                  # étiquette dans le prompt, sans steering
-  diffmean_reft: true                # baselines supervisées DiffMean / ReFT (cf. AxBench)
+  diffmean_reft: true                # baselines supervisées DiffMean / ReFT — NON implémenté en v6.9.0
+  # Nouveaux paramètres v6.9.0
+  strict_controls: true              # contrôle activé mais absent/non implémenté → RuntimeError ;
+                                     # false → skip explicite SANS verdict
+  score_controls: true               # scorer les contrôles (métriques secondaires) après production
+  controls_to_run:                   # liste explicite (prioritaire sur les clés booléennes)
+    - random_feature_same_layer
+    - matched_activation_freq
+    - random_direction_same_norm
+    - negative_steering
+    - prompt_only
+  prompt_only_annotation_source: "morphorepr"   # annotation injectée dans le prompt (morphorepr|nl_description)
+  random_direction_seed_mode: "feature_uid"     # seed dérivée de (seed, target_feature_uid, control_name)
+  matched_activation_freq_log_eps: 1.0e-9       # eps du matching en distance log-fréquence
 
 # Contrôle mélangé
 shuffle_control:
@@ -487,10 +505,11 @@ seed: 42
 
 ---
 
-## 3. Schéma SQLite complet (v6.8.0)
+## 3. Schéma SQLite complet (v6.9.0)
 
 ```sql
--- db/schema.sql  —  Version 6.8.0 (aucun changement de schéma vs 6.5.3), ne jamais modifier après le full run
+-- db/schema.sql  —  Version 6.9.0 (PREMIER changement de schéma depuis 6.5.3 : ajout de la table
+-- intervention_control_results), ne jamais modifier après le full run
 
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -779,6 +798,43 @@ CREATE TABLE IF NOT EXISTS steering_duplicate_attempts (
     created_at                  TEXT NOT NULL
 );
 
+-- v6.9.0 : PREMIER changement de schéma depuis v6.5.3. Table DÉDIÉE aux contrôles d'intervention
+-- (run_intervention_controls). Séparée de steering_results pour ne PAS polluer le primaire et
+-- parce qu'un contrôle a parfois DEUX features : la target (dont la prédiction MorphoRepr est
+-- évaluée) et la control (celle réellement steerée). control_name distingue les contrôles ;
+-- target_feature_uid rattache le résultat à la feature évaluée. Métriques SECONDAIRES uniquement.
+CREATE TABLE IF NOT EXISTS intervention_control_results (
+    control_result_id    TEXT PRIMARY KEY,
+    run_id               TEXT NOT NULL REFERENCES runs(run_id),
+    model_run_id         TEXT NOT NULL REFERENCES model_runs(model_run_id),
+    target_feature_uid   TEXT NOT NULL REFERENCES features(feature_uid),
+    target_feature_index INTEGER NOT NULL,
+    control_name         TEXT NOT NULL,
+    control_feature_uid  TEXT REFERENCES features(feature_uid),   -- NULL pour random_direction/prompt_only
+    control_feature_index INTEGER,
+    intervention_space   TEXT,
+    magnitude            REAL,
+    magnitude_rel        REAL,
+    magnitude_key        TEXT NOT NULL,
+    probe_id             INTEGER NOT NULL,
+    probe_family         TEXT,
+    probe_category       TEXT,
+    generation_index     INTEGER DEFAULT 0,
+    text_before          TEXT NOT NULL,
+    text_after           TEXT,
+    activation_before    REAL,
+    activation_after     REAL,
+    achieved_delta       REAL,
+    ood_flag             INTEGER DEFAULT 0,
+    metadata_json        TEXT,            -- seed/norm/distance/annotation tronquée selon le contrôle
+    created_at           TEXT NOT NULL,
+    UNIQUE(
+        run_id, model_run_id, target_feature_uid, control_name,
+        control_feature_uid, intervention_space, magnitude_key,
+        probe_family, probe_category, probe_id, generation_index
+    )
+);
+
 CREATE TABLE IF NOT EXISTS api_usage (
     call_id         TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL REFERENCES runs(run_id),
@@ -861,6 +917,7 @@ CREATE INDEX IF NOT EXISTS idx_ao_feature  ON agent_outputs(feature_uid, agent_n
 CREATE INDEX IF NOT EXISTS idx_metrics     ON metrics(run_id, split, metric_name);
 CREATE INDEX IF NOT EXISTS idx_api_phase   ON api_usage(run_id, phase);
 CREATE INDEX IF NOT EXISTS idx_steering    ON steering_results(run_id, feature_uid, magnitude);
+CREATE INDEX IF NOT EXISTS idx_control_results ON intervention_control_results(run_id, model_run_id, target_feature_uid, control_name);
 CREATE INDEX IF NOT EXISTS idx_batches_run ON batches(run_id, phase, agent_name, run_number);
 ```
 
@@ -2486,8 +2543,12 @@ Phase 4 — Steering d'activation SAE.
 steer_feature() est IMPLÉMENTÉ pour le CHEMIN PROXY OPEN-WEIGHT (TransformerLens + SAE Lens,
 espace 'residual_add_decoder'). Les chemins nnsight / modèle de production NE SONT PAS
 implémentés (NotImplementedError explicite), de même que l'espace 'sae_latent_clamp'.
-run_intervention_controls() reste un CONTRAT. causal_scorer._load_pairs() est IMPLÉMENTÉ
-(assemblage déterministe prédiction/observation, métrique primaire — Sections 8 et 27).
+run_intervention_controls() est IMPLÉMENTÉ (v6.9.0) pour 5 contrôles (random_feature_same_layer,
+matched_activation_freq, random_direction_same_norm, negative_steering, prompt_only) ; diffmean_reft
+reste NON implémenté. Les résultats vont dans la table DÉDIÉE intervention_control_results et sont
+scorés comme métriques SECONDAIRES (jamais le primaire). causal_scorer._load_pairs() est IMPLÉMENTÉ
+(assemblage déterministe prédiction/observation, métrique primaire — voir le scoreur causal §8 bis
+et le changelog v6.7.0).
 Phase 4 reste DÉSACTIVÉE par défaut (steering.run_in_pipeline=false) ; assert_steering_ready()
 doit passer sur un dev run avant tout pilot/full run avec steering activé (Règle 9). L'objectif
 de la série v6.6.x est un dev run de Phase 4 testable, PAS une validation scientifique de la Phase 4.
@@ -3227,26 +3288,416 @@ def _run_steering_batch(run_id: str, model,
                                                     g, r, config)
 
 
-def run_intervention_controls(run_id: str, config: dict):
-    """Phase 4 — CONTRÔLES D'INTERVENTION (contrat v6). Lit config['intervention_controls'].
+# ─── Contrôles d'intervention (v6.9.0) ──────────────────────────────────────────────────────
+# run_intervention_controls() est IMPLÉMENTÉ pour 5 contrôles. Résultats dans la table DÉDIÉE
+# intervention_control_results (JAMAIS steering_results). Métriques SECONDAIRES uniquement.
+# Strictement model/split/intervention_space-aware ; politique OOD respectée. diffmean_reft reste
+# NON implémenté (NotImplementedError si demandé). Désactivé par défaut (run_in_pipeline=false).
 
-    Désactivé par défaut (`run_in_pipeline: false`) → no-op avec avertissement, pour que le
-    dev/pilot run ne soit pas bloqué tant que les contrôles ne sont pas implémentés. Mettre
-    `run_in_pipeline: true` une fois implémentés ; tant que ce n'est pas fait et que c'est
-    activé, lève NotImplementedError (comme steer_feature)."""
+_IMPLEMENTED_CONTROLS = {"random_feature_same_layer", "matched_activation_freq",
+                         "random_direction_same_norm", "negative_steering", "prompt_only"}
+_UNIMPLEMENTED_CONTROLS = {"diffmean_reft"}
+_CONTROL_META_KEYS = {"run_in_pipeline", "strict_controls", "score_controls", "controls_to_run",
+                      "prompt_only_annotation_source", "random_direction_seed_mode",
+                      "matched_activation_freq_log_eps"}
+
+
+def _derive_int_seed(*parts) -> int:
+    import hashlib
+    return int(hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()[:8], 16)
+
+
+def _primary_model_run_id(run_id: str, config: dict) -> str:
+    from utils.db_utils import ensure_legacy_model_run
+    return (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+            or ensure_legacy_model_run(run_id))
+
+
+def _primary_magnitude_key(config: dict) -> str:
+    """Clé TEXTE de la magnitude primaire (cohérente avec _run_steering_batch / causal_scorer)."""
+    st = config["steering"]
+    if st.get("magnitude_mode", "p99_relative") == "absolute":
+        return f"abs:{st.get('legacy_absolute_magnitude', 5)}"
+    return f"rel:{st.get('primary_magnitude_rel', 1.0)}"
+
+
+def _primary_magnitude(config: dict, feature: dict):
+    """(mag_abs, mag_rel, magnitude_key) à la magnitude PRIMAIRE — même logique que run()."""
+    st   = config["steering"]
+    mode = st.get("magnitude_mode", "p99_relative")
+    rel  = st.get("primary_magnitude_rel", 1.0)
+    if mode == "absolute":
+        legacy = st.get("legacy_absolute_magnitude", 5)
+        return float(legacy), None, f"abs:{legacy}"
+    p99 = feature.get("activation_p99")
+    if p99 is None:
+        raise ValueError(f"activation_p99 manquant pour {feature.get('feature_uid')!r} : "
+                         f"magnitude relative impossible.")
+    return rel * p99, rel, f"rel:{rel}"
+
+
+def _controls_to_run(config: dict) -> list[str]:
+    """controls_to_run prioritaire ; sinon clés booléennes true (compat héritée)."""
+    ic = config.get("intervention_controls", {})
+    explicit = ic.get("controls_to_run")
+    if explicit:
+        return list(explicit)
+    return [k for k, v in ic.items() if v is True and k not in _CONTROL_META_KEYS]
+
+
+def _load_control_targets(run_id: str, model_run_id: str, split: str) -> list[dict]:
+    """Targets = features du split encodées (MorphoRepr) par le modèle PRIMAIRE. model/split-aware."""
+    from utils.db_utils import get_conn
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT f.feature_uid, f.feature_index, f.layer, f.layer_index,
+                   f.activation_p99, f.activation_mean, f.activation_std, f.activation_freq,
+                   f.nl_description
+            FROM agent_outputs ao JOIN features f ON f.feature_uid = ao.feature_uid
+            WHERE ao.run_id=? AND ao.model_run_id=? AND ao.agent_name='encoder'
+              AND ao.run_number=1 AND ao.status='ok' AND f.split=?
+        """, (run_id, model_run_id, split)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _load_layer_candidates(layer_index, exclude_uid: str) -> list[dict]:
+    """Features de la MÊME couche (hors target). N'importe quelle feature SAE de la couche peut
+    être steerée comme contrôle (indépendant de l'encodage MorphoRepr)."""
+    from utils.db_utils import get_conn
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT feature_uid, feature_index, layer, layer_index,
+                   activation_p99, activation_mean, activation_std, activation_freq
+            FROM features WHERE layer_index=? AND feature_uid<>?
+        """, (layer_index, exclude_uid)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _select_random_feature_same_layer(target: dict, candidates: list[dict], seed: int):
+    """Feature aléatoire DÉTERMINISTE de même couche, ≠ target. None si aucune candidate."""
+    if not candidates:
+        return None
+    rng = random.Random(f"{seed}|{target['feature_uid']}|random_feature_same_layer")
+    return candidates[rng.randrange(len(candidates))]
+
+
+def _select_matched_activation_freq(target: dict, candidates: list[dict], log_eps: float = 1e-9):
+    """Feature de même couche minimisant |log(freq_t+eps) − log(freq_c+eps)|. (control, distance)
+    ou (None, None) si aucune candidate exploitable."""
+    import math
+    ft = target.get("activation_freq")
+    pool = [c for c in candidates if c.get("activation_freq") is not None]
+    if ft is None or not pool:
+        return None, None
+    def dist(c): return abs(math.log(ft + log_eps) - math.log(c["activation_freq"] + log_eps))
+    best = min(pool, key=dist)
+    return best, dist(best)
+
+
+def _make_random_direction_hook(d_model: int, norm: float, magnitude: float,
+                                token_position: str, seed: int):
+    """Hook ajoutant magnitude·(direction aléatoire ramenée à `norm`) au résiduel, aux positions
+    sélectionnées. DÉTERMINISTE (torch.Generator seedé). Renvoie (hook, used_norm)."""
+    import torch
+    g = torch.Generator(device="cpu"); g.manual_seed(int(seed) & 0x7FFFFFFF)
+    v = torch.randn(d_model, generator=g)
+    v = v / (v.norm() + 1e-12) * float(norm)        # même norme que W_dec[target]
+    used_norm = float(v.norm().item())
+
+    def hook(resid, hook):
+        seq = resid.shape[1]
+        positions = _position_indices(seq, token_position)
+        d = v.to(device=resid.device, dtype=resid.dtype)
+        resid[:, positions, :] = resid[:, positions, :] + float(magnitude) * d
+        return resid
+
+    return hook, used_norm
+
+
+def _prompt_only_annotation(run_id, model_run_id, target, config) -> str:
+    """Annotation injectée pour prompt_only. Source 'morphorepr' → expression encoder du target ;
+    sinon nl_description. Repli sur nl_description si l'expression manque."""
+    src = config.get("intervention_controls", {}).get("prompt_only_annotation_source", "morphorepr")
+    if src == "morphorepr":
+        from utils.db_utils import get_conn
+        with get_conn() as conn:
+            row = conn.execute("""
+                SELECT json_extract(output_json, '$.expression') AS expr
+                FROM agent_outputs WHERE run_id=? AND model_run_id=? AND feature_uid=?
+                  AND agent_name='encoder' AND run_number=1 AND status='ok'
+            """, (run_id, model_run_id, target["feature_uid"])).fetchone()
+        expr = row["expr"] if row else None
+        return expr or target.get("nl_description") or ""
+    return target.get("nl_description") or ""
+
+
+def _enrich_prompt(sentence: str, annotation: str) -> str:
+    """Prompt enrichi pour prompt_only : injecte l'étiquette SANS aucune intervention résiduelle."""
+    annotation = (annotation or "").strip()
+    return f"Consider the concept: {annotation}. {sentence}" if annotation else sentence
+
+
+def _control_rows_exist(conn, run_id, model_run_id, target_uid, control_name) -> bool:
+    return conn.execute("""
+        SELECT COUNT(*) FROM intervention_control_results
+        WHERE run_id=? AND model_run_id=? AND target_feature_uid=? AND control_name=?
+    """, (run_id, model_run_id, target_uid, control_name)).fetchone()[0] > 0
+
+
+def _insert_intervention_control_result(conn, run_id, model_run_id, target, control_name,
+                                        control_feat, space, magnitude, mag_rel, mag_key,
+                                        family, category, probe_id, g, text_before, text_after,
+                                        a_before, a_after, achieved, ood, metadata) -> bool:
+    """Insertion idempotente NON SILENCIEUSE dans intervention_control_results (1ʳᵉ sortie
+    conservée ; divergence journalisée). Renvoie True si une ligne a été insérée."""
+    cuid = control_feat.get("feature_uid") if control_feat else None
+    cidx = control_feat.get("feature_index") if control_feat else None
+    existing = conn.execute("""
+        SELECT control_result_id, text_after FROM intervention_control_results
+        WHERE run_id=? AND model_run_id=? AND target_feature_uid=? AND control_name=?
+          AND control_feature_uid IS ? AND intervention_space IS ? AND magnitude_key=?
+          AND probe_family IS ? AND probe_category IS ? AND probe_id=? AND generation_index=?
+    """, (run_id, model_run_id, target["feature_uid"], control_name, cuid, space, mag_key,
+          family, category, probe_id, g)).fetchone()
+    if existing is not None:
+        if existing["text_after"] != text_after:
+            logger.warning(f"Divergence contrôle {control_name}/{target['feature_uid']} probe "
+                           f"{probe_id} gen {g} — 1ʳᵉ sortie conservée (non écrasée).")
+        return False
+    conn.execute("""
+        INSERT INTO intervention_control_results (
+            control_result_id, run_id, model_run_id, target_feature_uid, target_feature_index,
+            control_name, control_feature_uid, control_feature_index, intervention_space,
+            magnitude, magnitude_rel, magnitude_key, probe_id, probe_family, probe_category,
+            generation_index, text_before, text_after, activation_before, activation_after,
+            achieved_delta, ood_flag, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (str(uuid4()), run_id, model_run_id, target["feature_uid"], target["feature_index"],
+          control_name, cuid, cidx, space, magnitude, mag_rel, mag_key, probe_id, family, category,
+          g, text_before, text_after, a_before, a_after, achieved, ood,
+          json.dumps(metadata) if metadata else None, datetime.utcnow().isoformat()))
+    return True
+
+
+def _build_control_plan(run_id, model_run_id, control_name, target, config):
+    """Plan d'exécution pour (control_name, target), ou None si skip (non strict). Le plan isole
+    ce qui DIFFÈRE entre contrôles : feature steerée, magnitude/clé, hook (ou non), feature/SAE
+    mesurés, métadonnées, mode prompt_only."""
+    st = config["steering"]
+    space = st.get("intervention_space", "residual_add_decoder")
+    token_position = st.get("token_position", "all")
+    seed = config.get("seed", 42)
+    ic = config.get("intervention_controls", {})
+    strict = ic.get("strict_controls", True)
+    layer = target.get("layer_index", target.get("layer"))
+    target_stats = {"activation_p99": target.get("activation_p99"),
+                    "activation_mean": target.get("activation_mean"),
+                    "activation_std": target.get("activation_std")}
+    plan = {"control_feat": None, "space": space, "metadata": {}, "prompt_only": False,
+            "annotation": None, "hook_factory": None, "magnitude": None, "mag_rel": None,
+            "mag_key": None, "measure_sae": None, "measure_index": target["feature_index"],
+            "measure_stats": target_stats}
+
+    if control_name in ("random_feature_same_layer", "matched_activation_freq"):
+        cands = _load_layer_candidates(layer, target["feature_uid"])
+        if control_name == "random_feature_same_layer":
+            cf = _select_random_feature_same_layer(target, cands, seed)
+        else:
+            cf, dmatch = _select_matched_activation_freq(
+                target, cands, ic.get("matched_activation_freq_log_eps", 1e-9))
+        if cf is None:
+            msg = (f"Contrôle '{control_name}' : aucune feature candidate de couche {layer} pour "
+                   f"target {target['feature_uid']}.")
+            if strict:
+                raise RuntimeError(msg)
+            logger.warning(msg + " — skip (non strict)."); return None
+        if control_name == "matched_activation_freq":
+            plan["metadata"]["freq_log_distance"] = dmatch
+        sae = _get_sae(config, cf.get("layer_index", cf.get("layer")))
+        idx = cf["feature_index"]
+        mag_abs, mag_rel, mag_key = _primary_magnitude(config, cf)   # magnitude primaire de la CONTROL feature
+        plan.update(control_feat=cf, magnitude=mag_abs, mag_rel=mag_rel, mag_key=mag_key,
+                    measure_sae=sae, measure_index=idx,
+                    measure_stats={"activation_p99": cf.get("activation_p99"),
+                                   "activation_mean": cf.get("activation_mean"),
+                                   "activation_std": cf.get("activation_std")},
+                    hook_factory=lambda s=sae, i=idx, m=mag_abs:
+                        _make_residual_add_decoder_hook(s, i, m, token_position, config))
+
+    elif control_name == "negative_steering":
+        sae = _get_sae(config, layer); idx = target["feature_index"]
+        mag_abs, mag_rel, _ = _primary_magnitude(config, target)
+        neg_abs = -mag_abs
+        neg_rel = (-mag_rel if mag_rel is not None else None)
+        neg_key = (f"rel:{neg_rel}" if neg_rel is not None else f"abs:-{abs(mag_abs)}")
+        plan.update(magnitude=neg_abs, mag_rel=neg_rel, mag_key=neg_key, measure_sae=sae,
+                    measure_index=idx, measure_stats=target_stats,
+                    hook_factory=lambda s=sae, i=idx, m=neg_abs:
+                        _make_residual_add_decoder_hook(s, i, m, token_position, config))
+
+    elif control_name == "random_direction_same_norm":
+        sae = _get_sae(config, layer); idx = target["feature_index"]
+        norm = float(sae.W_dec[idx].norm().item()); d_model = int(sae.W_dec.shape[1])
+        mag_abs, mag_rel, mag_key = _primary_magnitude(config, target)
+        dseed = _derive_int_seed(seed, target["feature_uid"], control_name)
+        hook, used_norm = _make_random_direction_hook(d_model, norm, mag_abs, token_position, dseed)
+        plan["metadata"].update(random_direction_seed=dseed, target_decoder_norm=norm,
+                                used_norm=used_norm)
+        plan.update(magnitude=mag_abs, mag_rel=mag_rel, mag_key=mag_key, measure_sae=sae,
+                    measure_index=idx, measure_stats=target_stats, hook_factory=lambda h=hook: h)
+
+    elif control_name == "prompt_only":
+        annotation = _prompt_only_annotation(run_id, model_run_id, target, config)
+        plan.update(prompt_only=True, space="prompt_only", annotation=annotation,
+                    magnitude=None, mag_rel=None, mag_key="prompt_only")
+        plan["metadata"].update(
+            annotation_source=ic.get("prompt_only_annotation_source", "morphorepr"),
+            annotation=(annotation or "")[:200])
+        try:
+            plan["measure_sae"] = _get_sae(config, layer)
+        except NotImplementedError:
+            plan["measure_sae"] = None
+
+    elif control_name in _UNIMPLEMENTED_CONTROLS:
+        raise NotImplementedError(f"Contrôle '{control_name}' non implémenté en v6.9.0 (DiffMean/ReFT).")
+    else:
+        raise NotImplementedError(f"Contrôle inconnu : {control_name!r}.")
+    return plan
+
+
+def _run_control_for_target(conn, model, run_id, model_run_id, control_name, target,
+                            probe_sets, gens, config) -> int:
+    """Produit et insère les résultats d'UN contrôle pour UNE target. Renvoie le nb de lignes.
+    Pour random_feature_same_layer / matched_activation_freq : on STEERE la control feature mais
+    on RATTACHE le résultat à la target (control_feature_uid conservé)."""
+    plan = _build_control_plan(run_id, model_run_id, control_name, target, config)
+    if plan is None:
+        return 0
+    n = 0
+    for family, category, sentences in probe_sets:
+        for probe_id, sentence in enumerate(sentences, 1):
+            for g in range(gens):
+                try:
+                    if plan["prompt_only"]:
+                        text_before = _generate_text(model, sentence, config, hook_fn=None)
+                        text_after  = _generate_text(model, _enrich_prompt(sentence, plan["annotation"]),
+                                                      config, hook_fn=None)   # AUCUN hook de steering
+                        a_before = a_after = achieved = None; ood = 0
+                        if plan["measure_sae"] is not None:
+                            toks = _tokens_from_prompt(model, sentence)
+                            a_before = _measure_feature_activation(model, plan["measure_sae"], toks,
+                                                                   plan["measure_index"], config)
+                    else:
+                        sae = plan["measure_sae"]; hname = _get_hook_name_from_sae(sae, config)
+                        hook = plan["hook_factory"]()
+                        toks = _tokens_from_prompt(model, sentence)
+                        text_before = _generate_text(model, sentence, config, hook_fn=None)
+                        a_before = _measure_feature_activation(model, sae, toks, plan["measure_index"],
+                                                               config, hook_fn=None, hook_name=hname)
+                        text_after = _generate_text(model, sentence, config, hook_fn=(hname, hook))
+                        a_after = _measure_feature_activation(model, sae, toks, plan["measure_index"],
+                                                              config, hook_fn=hook, hook_name=hname)
+                        achieved = a_after - a_before
+                        ood = _is_ood(a_after, a_before, plan["measure_stats"], config)
+                except NotImplementedError:
+                    raise
+                except Exception as e:
+                    logger.warning(f"Erreur contrôle {control_name} target {target['feature_uid']} "
+                                   f"probe {probe_id}: {e}")
+                    continue
+                if _insert_intervention_control_result(
+                        conn, run_id, model_run_id, target, control_name, plan["control_feat"],
+                        plan["space"], plan["magnitude"], plan["mag_rel"], plan["mag_key"],
+                        family, category, probe_id, g, text_before, text_after,
+                        a_before, a_after, achieved, ood, plan["metadata"]):
+                    n += 1
+    return n
+
+
+def assert_intervention_controls_ready(run_id: str, config: dict) -> None:
+    """Garde DB-only : prédictions MorphoRepr + steering_results PRIMAIRES présents (modèle et
+    split primaires). steer_feature lui-même est vérifié séparément via assert_steering_ready
+    (appelé dans run_intervention_controls). Lève RuntimeError sinon."""
+    from utils.db_utils import get_conn
+    model_run_id = _primary_model_run_id(run_id, config)
+    split = config.get("primary_split", "random")
+    st = config["steering"]; space = st.get("intervention_space", "residual_add_decoder")
+    mag_key = _primary_magnitude_key(config)
+    accepted = ("predictor", "predictor_morphorepr")
+    ph = ",".join("?" for _ in accepted)
+    with get_conn() as conn:
+        n_pred = conn.execute(f"""
+            SELECT COUNT(DISTINCT ao.feature_uid) FROM agent_outputs ao
+            JOIN features f ON f.feature_uid=ao.feature_uid
+            WHERE ao.run_id=? AND ao.model_run_id=? AND ao.status='ok'
+              AND ao.agent_name IN ({ph}) AND f.split=?
+        """, (run_id, model_run_id, *accepted, split)).fetchone()[0]
+        if n_pred == 0:
+            raise RuntimeError(
+                f"Contrôles : aucune prédiction MorphoRepr (agent ∈ {accepted}) pour "
+                f"model_run_id={model_run_id}, split={split}. Lancer le predictor d'abord.")
+        n_steer = conn.execute("""
+            SELECT COUNT(*) FROM steering_results sr JOIN features f ON f.feature_uid=sr.feature_uid
+            WHERE sr.run_id=? AND sr.model_run_id=? AND sr.magnitude_key=? AND sr.intervention_space=?
+              AND f.split=? AND sr.text_after IS NOT NULL
+        """, (run_id, model_run_id, mag_key, space, split)).fetchone()[0]
+        if n_steer == 0:
+            raise RuntimeError(
+                f"Contrôles : aucun steering_results primaire (magnitude_key={mag_key}, space={space}) "
+                f"pour model_run_id={model_run_id}, split={split}. Lancer steerer.run() d'abord.")
+
+
+def run_intervention_controls(run_id: str, config: dict):
+    """Phase 4 — CONTRÔLES D'INTERVENTION (v6.9.0). IMPLÉMENTÉ pour random_feature_same_layer,
+    matched_activation_freq, random_direction_same_norm, negative_steering, prompt_only. Résultats
+    dans intervention_control_results (JAMAIS steering_results). Métriques SECONDAIRES uniquement
+    (jamais le score primaire). Désactivé par défaut (run_in_pipeline=false) → no-op. Un contrôle
+    activé mais non implémenté (diffmean_reft) lève NotImplementedError AVANT toute génération."""
     ic = config.get("intervention_controls", {})
     if not ic.get("run_in_pipeline", False):
         logger.warning("p4_controls désactivé (intervention_controls.run_in_pipeline=false) — ignoré.")
-        return
-    enabled = [name for name, on in ic.items() if on and name != "run_in_pipeline"]
-    raise NotImplementedError(
-        "run_intervention_controls() non implémenté. Contrôles déclarés à implémenter : "
-        + ", ".join(enabled) + ". "
-        "Chaque contrôle (random_feature_same_layer, random_direction_same_norm, "
-        "matched_activation_freq, negative_steering, prompt_only, diffmean_reft) doit "
-        "produire des résultats scorés par le MÊME chemin déterministe que le traitement. "
-        "Tant que non implémenté, garder run_in_pipeline=false."
-    )
+        return {"status": "disabled"}
+
+    controls = _controls_to_run(config)
+    for c in controls:                          # échouer AVANT toute génération si non implémenté/inconnu
+        if c in _UNIMPLEMENTED_CONTROLS:
+            raise NotImplementedError(
+                f"Contrôle '{c}' activé mais NON implémenté en v6.9.0 (baseline supervisée "
+                f"DiffMean/ReFT). Le retirer de controls_to_run ou l'implémenter (pas de version factice).")
+        if c not in _IMPLEMENTED_CONTROLS:
+            raise NotImplementedError(f"Contrôle inconnu : {c!r}.")
+
+    from utils.db_utils import get_conn
+    model = _get_model(config)
+    assert_steering_ready(config)                        # steer_feature réellement opérationnel (Règle 9)
+    assert_intervention_controls_ready(run_id, config)   # prédictions MorphoRepr + steering primaire présents
+    model_run_id = _primary_model_run_id(run_id, config)
+    split = config.get("primary_split", "random")
+    gens = config["steering"].get("generations_per_probe", 1)
+    run_mode = config.get("run_mode", "full")
+    n_neutral = (config["steering"].get("n_probe_sentences_pilot", config["steering"]["n_probe_sentences"])
+                 if run_mode in ("dev", "pilot") else config["steering"]["n_probe_sentences"])
+    probe_sets = [("neutral", None, load_probe_sentences(n_neutral, family="neutral"))]
+    targets = _load_control_targets(run_id, model_run_id, split)
+
+    summary = {}
+    with get_conn() as conn:
+        for control_name in controls:
+            rows = 0
+            for target in targets:
+                if _control_rows_exist(conn, run_id, model_run_id, target["feature_uid"], control_name):
+                    continue                     # reprise idempotente
+                rows += _run_control_for_target(conn, model, run_id, model_run_id, control_name,
+                                                target, probe_sets, gens, config)
+            summary[control_name] = {"targets": len(targets), "rows": rows}
+            logger.info(f"Contrôle {control_name} : {rows} lignes pour {len(targets)} targets.")
+
+    scores = None
+    if ic.get("score_controls", True):
+        from agents import causal_scorer
+        scores = causal_scorer.score_intervention_controls(run_id, config)
+    logger.info("Phase 4 contrôles d'intervention terminée.")
+    return {"status": "ok", "controls": summary, "scores": scores}
 ```
 
 ---
@@ -3807,6 +4258,166 @@ def run(run_id: str, config: dict):
                           datetime.utcnow().isoformat()))
     logger.info(f"Score causal global (split={split}, model_run_id={model_run_id}) : "
                 f"macro-F1={point['macro_f1']} IC95={ci}")
+    return results
+
+
+def load_intervention_control_pairs(run_id: str,
+                                    control_name: str,
+                                    method: str = "morphorepr",
+                                    config: dict | None = None,
+                                    model_run_id: str | None = None,
+                                    split: str = "random") -> list[dict]:
+    """Couples prédiction/observation pour UN contrôle d'intervention (table dédiée
+    intervention_control_results). À NE PAS confondre avec _load_pairs() primaire : les
+    observations proviennent des contrôles, PAS de steering_results. predicted ← prédictions
+    MorphoRepr (agent_outputs) de la TARGET ; observed ← MÊMES classifieurs déterministes appliqués
+    aux text_before/text_after du contrôle. Restreint aux ROBUST_PROPERTIES. model/split/space-aware,
+    politique OOD respectée. Aucun juge LLM, aucune pseudo-observation."""
+    config = config or {}
+    if method != "morphorepr":
+        raise NotImplementedError(
+            "load_intervention_control_pairs : les contrôles sont scorés contre les prédictions "
+            "MorphoRepr uniquement (method='morphorepr').")
+    from utils.db_utils import ensure_legacy_model_run
+    if model_run_id is None:
+        model_run_id = (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+                        or ensure_legacy_model_run(run_id))
+    accepted = ACCEPTED_PREDICTOR_AGENTS["morphorepr"]
+    st = config.get("steering", {})
+    exclude_ood = bool(st.get("exclude_ood_from_primary", True))
+    space = st.get("intervention_space", "residual_add_decoder")
+    # prompt_only stocke intervention_space='prompt_only' ; les contrôles steerés gardent le space primaire.
+    obs_space = "prompt_only" if control_name == "prompt_only" else space
+
+    ph = ",".join("?" for _ in accepted)
+    with get_conn() as conn:
+        pred_rows = conn.execute(f"""
+            SELECT ao.feature_uid, ao.output_json
+            FROM agent_outputs ao JOIN features f ON f.feature_uid = ao.feature_uid
+            WHERE ao.run_id=? AND ao.model_run_id=? AND ao.status='ok'
+              AND ao.agent_name IN ({ph}) AND f.split=?
+        """, (run_id, model_run_id, *accepted, split)).fetchall()
+    if not pred_rows:
+        raise RuntimeError(
+            f"No MorphoRepr predictor outputs for control={control_name}, run_id={run_id}, "
+            f"model_run_id={model_run_id} (agent_name ∈ {accepted}, split={split}).")
+    predicted: dict[str, dict[str, str]] = {}
+    for r in pred_rows:
+        dirs = _extract_predicted_directions(r["output_json"])
+        predicted.setdefault(r["feature_uid"], {}).update(
+            {p: d for p, d in dirs.items() if p in ROBUST_PROPERTIES})
+
+    with get_conn() as conn:
+        q = """
+            SELECT icr.target_feature_uid AS feature_uid, icr.text_before, icr.text_after,
+                   icr.generation_index, icr.ood_flag
+            FROM intervention_control_results icr
+            JOIN features f ON f.feature_uid = icr.target_feature_uid
+            WHERE icr.run_id=? AND icr.model_run_id=? AND icr.control_name=?
+              AND icr.intervention_space=? AND icr.text_after IS NOT NULL AND f.split=?
+        """
+        if exclude_ood:
+            q += " AND icr.ood_flag = 0"
+        obs_rows = conn.execute(q, (run_id, model_run_id, control_name, obs_space, split)).fetchall()
+    if not obs_rows:
+        raise RuntimeError(
+            f"No intervention-control observations for control={control_name}, run_id={run_id}, "
+            f"model_run_id={model_run_id}, space={obs_space}, split={split}. "
+            f"Did you run run_intervention_controls() first?")
+    obs_by_feat: dict[str, list[dict]] = {}
+    for r in obs_rows:
+        obs_by_feat.setdefault(r["feature_uid"], []).append(dict(r))
+
+    cmap = CLASSIFIER_BY_PROPERTY or _default_classifier_map()
+    pairs = []
+    for uid, props in predicted.items():
+        if uid not in obs_by_feat:
+            continue
+        rows = obs_by_feat[uid]
+        for prop in ROBUST_PROPERTIES:
+            pred_dir = props.get(prop)
+            if pred_dir is None:
+                continue
+            classifier_fn = cmap.get(prop)
+            if classifier_fn is None:
+                raise KeyError(f"Aucun classifieur enregistré pour la propriété robuste {prop!r}.")
+            obs = _observe_property_direction(rows, prop, classifier_fn)
+            if obs is None:
+                continue
+            pairs.append({
+                "feature_uid":    uid,
+                "model_run_id":   model_run_id,
+                "property":       prop,
+                "predicted":      pred_dir,
+                "observed":       obs["direction"],
+                "method":         method,
+                "control_name":   control_name,
+                "n_observations": obs["n_observations"],
+                "metadata": {"control_name": control_name, "split": split, "space": obs_space},
+            })
+    if not pairs:
+        raise RuntimeError(
+            f"No control pairs assembled for control={control_name}, run_id={run_id}, "
+            f"model_run_id={model_run_id} : prédictions et observations existent mais aucune "
+            f"propriété ROBUSTE commune.")
+    return pairs
+
+
+def score_intervention_controls(run_id: str, config: dict) -> dict:
+    """Score SECONDAIRE des contrôles d'intervention (jamais le primaire). Pour chaque contrôle de
+    controls_to_run : macro-F1 du contrôle + différence appariée primaire − contrôle (bootstrap
+    clusterisé par feature) + couverture. Écrit metric_name='intervention_control_macro_f1:<nom>'
+    et 'intervention_control_paired_diff:<nom>' (baseline='control:<nom>', model_run_id renseigné).
+    Strict → RuntimeError si un contrôle activé est absent ; sinon skip explicite SANS verdict."""
+    from utils.db_utils import ensure_legacy_model_run
+    ic = config.get("intervention_controls", {})
+    strict = ic.get("strict_controls", True)
+    split  = config.get("primary_split", "random")
+    n_boot = config["stats"].get("bootstrap_resamples", 10000)
+    seed   = config.get("seed", 42)
+    model_run_id = (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+                    or ensure_legacy_model_run(run_id))
+
+    primary = _load_pairs(run_id, "morphorepr", config=config, model_run_id=model_run_id, split=split)
+    p_point = compute_global_macro_f1(primary)
+    results = {"primary": p_point, "controls": {}}
+    metric_rows = []
+
+    controls = ic.get("controls_to_run") or [
+        k for k, v in ic.items() if v is True and k not in {
+            "run_in_pipeline", "strict_controls", "score_controls", "controls_to_run",
+            "prompt_only_annotation_source", "random_direction_seed_mode",
+            "matched_activation_freq_log_eps"}]
+    for control_name in controls:
+        try:
+            c_pairs = load_intervention_control_pairs(
+                run_id, control_name, method="morphorepr", config=config,
+                model_run_id=model_run_id, split=split)
+        except RuntimeError as e:
+            if strict:
+                raise
+            logger.warning(f"Contrôle '{control_name}' IGNORÉ au scoring (absent/incomplet) : {e} "
+                           f"— AUCUN verdict produit."); continue
+        c_point = compute_global_macro_f1(c_pairs)
+        d = paired_diff_bootstrap(primary, c_pairs, n_boot, seed)
+        d["coverage"] = {"primary_pairs": p_point["n_pairs"], "control_pairs": c_point["n_pairs"],
+                         "n_shared_features": d["n_shared_features"]}
+        results["controls"][control_name] = {"macro_f1": c_point["macro_f1"], **d}
+        metric_rows.append((f"intervention_control_macro_f1:{control_name}", c_point["macro_f1"],
+                            None, None, c_point["n_pairs"], f"control:{control_name}"))
+        metric_rows.append((f"intervention_control_paired_diff:{control_name}", d["diff"],
+                            d["ci_low"], d["ci_high"], d["n_shared_features"], f"control:{control_name}"))
+        logger.info(f"Contrôle {control_name} : macro-F1={c_point['macro_f1']} ; "
+                    f"diff primaire−contrôle={d['diff']} IC95=[{d['ci_low']},{d['ci_high']}] "
+                    f"(features partagées={d['n_shared_features']}).")
+
+    with get_conn() as conn:
+        for name, value, lo, hi, n, base in metric_rows:
+            conn.execute("""INSERT INTO metrics (metric_id, run_id, model_run_id, phase, split,
+                            metric_name, value, ci_low, ci_high, n_samples, baseline, computed_at)
+                            VALUES (?, ?, ?, 'p4_controls', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (str(uuid4()), run_id, model_run_id, split, name, value, lo, hi, n, base,
+                          datetime.utcnow().isoformat()))
     return results
 ```
 
@@ -5136,6 +5747,262 @@ def test_baseline_coverage_shared_features(test_db, monkeypatch):
 
 ```python
 # ─────────────────────────────────────────────
+# tests/test_intervention_controls.py  (v6.9.0 — contrôles d'intervention)
+# Déterministe : sélecteurs/seed purs, FakeSAE/FakeModel légers, classifieurs via
+# cs.CLASSIFIER_BY_PROPERTY, et insertions directes dans intervention_control_results pour le
+# scoring. Aucun modèle réel n'est chargé (l'intégration live est opt-in, MORPHOREPR_RUN_DEV_CONTROLS).
+# ─────────────────────────────────────────────
+import json as _json
+import sqlite3 as _sqlite3
+import pytest as _pytest
+import torch as _torch
+import agents.steerer as stz
+import agents.causal_scorer as cs
+from agents.causal_scorer import load_intervention_control_pairs, score_intervention_controls
+
+_CFG_IC = {
+    "primary_split": "random",
+    "seed": 42,
+    "steering": {"magnitude_mode": "p99_relative", "primary_magnitude_rel": 1.0,
+                 "legacy_absolute_magnitude": 5, "primary_probe_family": "neutral",
+                 "exclude_ood_from_primary": True, "intervention_space": "residual_add_decoder",
+                 "token_position": "all", "decoding": {"temperature": 0.0, "max_new_tokens": 8},
+                 "n_probe_sentences": 1},
+    "stats": {"bootstrap_resamples": 50},
+    "thresholds": {"nim_delta": 0.05},
+    "intervention_controls": {"run_in_pipeline": False, "strict_controls": True, "score_controls": True,
+                              "controls_to_run": ["random_feature_same_layer", "matched_activation_freq",
+                                                  "random_direction_same_norm", "negative_steering",
+                                                  "prompt_only"],
+                              "prompt_only_annotation_source": "nl_description",
+                              "matched_activation_freq_log_eps": 1e-9},
+    "_runtime": {"model_run_ids": {"primary": "mrP"}},
+}
+
+
+class _FakeModel:
+    """Modèle factice : enregistre les prompts, ne supporte AUCUN hook (toute tentative de
+    steering lèverait AttributeError → prouve prompt_only sans intervention résiduelle)."""
+    def __init__(self): self.prompts = []
+    def generate(self, prompt, **kw): self.prompts.append(prompt); return f"GEN::{prompt[:14]}"
+
+
+class _FakeSAE:
+    def __init__(self, n=8, d=4):
+        self.W_dec = _torch.ones(n, d)
+        class _C: hook_name = "blocks.3.hook_resid_post"
+        self.cfg = _C()
+
+
+def _mk_run(c, r="r1"): c.execute("""INSERT INTO runs (run_id,git_commit,config_hash,prompt_hashes,lexicon_version,lexicon_hash,corpus_hash,models_json,use_temperature,temperature,seed,proxy_model,started_at,completed_at,status,last_phase,total_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (r,'c','h','{}','v1','lh','ch','{}',0,None,42,None,'2026-01-01',None,'running',None,0.0))
+def _mk_mr(c, r, mrid, nm="primary", t="B_open_weight"): c.execute("""INSERT INTO model_runs (model_run_id,run_id,provider_name,provider_tier,backend,model_name,generation_params_json,created_at) VALUES (?,?,?,?,?,?,'{}','2026-01-01')""", (mrid,r,"p",t,"vllm",nm))
+def _mk_feat(c, idx, split="random", layer_index=3, freq=0.05, p99=2.0):
+    uid=f"gpt2:res-jb:{layer_index}:hook_resid_post:{idx}"
+    c.execute("""INSERT INTO features (feature_uid,model_name,sae_release,layer_index,hook_name,feature_index,split,nl_description,top_examples,score_interp,activation_freq,activation_p99,activation_mean,activation_std,layer,neuronpedia_url,loaded_at) VALUES (?, 'gpt2','res-jb',?,'hook_resid_post',?,?,'negation feature','[]',0.8,?,?,0.8,0.4,?,'x','2026-01-01')""",(uid,layer_index,idx,split,freq,p99,str(layer_index)))
+    return uid
+def _mk_pred(c, r, mrid, uid, idx, props, agent="predictor"):
+    c.execute("""INSERT INTO agent_outputs (output_id,run_id,model_run_id,feature_uid,feature_index,agent_name,run_number,output_json,raw_output,status,error_msg,tokens_input,tokens_output,batch_id,cost_usd,coefficient_type,created_at) VALUES (?,?,?,?,?,?,1,?,?,'ok',NULL,1,1,NULL,0.0,'confidence','2026-01-01')""",(f"p-{mrid}-{idx}-{agent}",r,mrid,uid,idx,agent,_json.dumps({"status":"ok","predictions":[{"property":k,"direction":v} for k,v in props.items()]}),"raw"))
+def _mk_steer(c, r, mrid, uid, idx):
+    c.execute("""INSERT INTO steering_results (result_id,run_id,model_run_id,feature_uid,feature_index,intervention_space,magnitude,magnitude_rel,magnitude_key,probe_id,probe_family,probe_category,generation_index,text_before,text_after,layer,token_position,activation_before,activation_after,achieved_delta,ood_flag,created_at) VALUES (?,?,?,?,?,'residual_add_decoder',2.0,1.0,'rel:1.0',?,'neutral',NULL,0,'a','b','3','all',1.0,2.0,1.0,0,'2026-01-01')""",(f"s-{mrid}-{idx}",r,mrid,uid,idx,idx))
+def _mk_control(c, r, mrid, tuid, idx, name, space, before, after, ood=0, probe_id=1, gen=0, cuid=None):
+    c.execute("""INSERT INTO intervention_control_results (control_result_id,run_id,model_run_id,target_feature_uid,target_feature_index,control_name,control_feature_uid,control_feature_index,intervention_space,magnitude,magnitude_rel,magnitude_key,probe_id,probe_family,probe_category,generation_index,text_before,text_after,activation_before,activation_after,achieved_delta,ood_flag,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'2026-01-01')""",(f"c-{mrid}-{idx}-{name}-{probe_id}-{gen}",r,mrid,tuid,idx,name,cuid,None,space,2.0,1.0,'rel:1.0',probe_id,'neutral',None,gen,before,after,1.0,2.0,1.0,ood,None))
+def _C(p): c=_sqlite3.connect(p); c.row_factory=_sqlite3.Row; return c
+
+
+# 1. no-op quand run_in_pipeline=false
+def test_controls_noop_disabled(test_db):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); c.commit(); c.close()
+    res = stz.run_intervention_controls("r1", _json.loads(_json.dumps(_CFG_IC)))
+    assert res["status"] == "disabled"
+    c=_C(test_db); assert c.execute("SELECT COUNT(*) FROM intervention_control_results").fetchone()[0]==0; c.close()
+
+
+# 2. sélection feature aléatoire de même couche
+def test_select_random_feature_same_layer(test_db):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP")
+    t=_mk_feat(c,1,layer_index=3); _mk_feat(c,2,layer_index=3); _mk_feat(c,3,layer_index=3); _mk_feat(c,9,layer_index=4)
+    c.commit(); c.close()
+    cands = stz._load_layer_candidates(3, t)
+    assert cands and all(x["layer_index"]==3 for x in cands) and all(x["feature_uid"]!=t for x in cands)
+    sel = stz._select_random_feature_same_layer({"feature_uid":t}, cands, 42)
+    assert sel["layer_index"]==3 and sel["feature_uid"]!=t
+
+
+# 3. matched activation frequency = plus proche en distance log
+def test_select_matched_activation_freq():
+    target={"activation_freq":0.05}
+    cands=[{"feature_uid":"a","activation_freq":0.051},{"feature_uid":"b","activation_freq":0.5},
+           {"feature_uid":"c","activation_freq":0.0001}]
+    best,d = stz._select_matched_activation_freq(target, cands, 1e-9)
+    assert best["feature_uid"]=="a" and d < 0.1
+
+
+# 4. random direction déterministe + norme cible
+def test_random_direction_deterministic_and_norm():
+    h1,n1 = stz._make_random_direction_hook(4, 3.0, 1.0, "all", 123)
+    h2,n2 = stz._make_random_direction_hook(4, 3.0, 1.0, "all", 123)
+    h3,_  = stz._make_random_direction_hook(4, 3.0, 1.0, "all", 999)
+    def apply(h):
+        r=_torch.zeros(1,2,4); return h(r, None)[0,0].clone()
+    v1,v2,v3 = apply(h1),apply(h2),apply(h3)
+    assert _torch.allclose(v1,v2) and not _torch.allclose(v1,v3)
+    assert abs(float(v1.norm())-3.0) < 1e-4 and abs(n1-3.0) < 1e-4
+
+
+# 5. negative steering : magnitude primaire rel:1.0 → contrôle rel:-1.0, magnitude absolue négative
+def test_negative_steering_magnitude(test_db, monkeypatch):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); _mk_feat(c,1,p99=2.0); c.commit(); c.close()
+    monkeypatch.setattr(stz, "_get_sae", lambda cfg, layer: _FakeSAE())
+    target={"feature_uid":"gpt2:res-jb:3:hook_resid_post:1","feature_index":1,"layer_index":3,
+            "activation_p99":2.0,"activation_mean":0.8,"activation_std":0.4,"nl_description":"x"}
+    mag_abs,rel,key = stz._primary_magnitude(_CFG_IC, target)
+    assert key=="rel:1.0" and mag_abs==2.0
+    plan = stz._build_control_plan("r1","mrP","negative_steering",target,_CFG_IC)
+    assert plan["mag_key"]=="rel:-1.0" and plan["magnitude"]==-2.0 and plan["mag_rel"]==-1.0
+
+
+# 6. prompt_only : aucun hook de steering, text_after via prompt enrichi
+def test_prompt_only_no_hook(test_db):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); c.commit(); c.close()
+    fake=_FakeModel()
+    target={"feature_uid":"gpt2:res-jb:3:hook_resid_post:1","feature_index":1,"layer_index":3,
+            "activation_p99":2.0,"activation_mean":0.8,"activation_std":0.4,"nl_description":"negation"}
+    conn=_C(test_db)
+    n = stz._run_control_for_target(conn,fake,"r1","mrP","prompt_only",target,
+                                    [("neutral",None,["the cat sat on the mat"])],1,_CFG_IC)
+    conn.commit()
+    assert n==1 and len(fake.prompts)==2 and "Consider the concept" in fake.prompts[1]
+    row=conn.execute("SELECT * FROM intervention_control_results WHERE control_name='prompt_only'").fetchone()
+    conn.close()
+    assert row["intervention_space"]=="prompt_only" and row["text_before"]!=row["text_after"]
+
+
+# 7. insertion idempotente
+def test_control_insert_idempotent(test_db):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); _mk_feat(c,1); c.commit()
+    target={"feature_uid":"gpt2:res-jb:3:hook_resid_post:1","feature_index":1}
+    a = stz._insert_intervention_control_result(c,"r1","mrP",target,"negative_steering",None,
+            "residual_add_decoder",-2.0,-1.0,"rel:-1.0","neutral",None,1,0,"a","b",1.0,2.0,1.0,0,{})
+    b = stz._insert_intervention_control_result(c,"r1","mrP",target,"negative_steering",None,
+            "residual_add_decoder",-2.0,-1.0,"rel:-1.0","neutral",None,1,0,"a","b",1.0,2.0,1.0,0,{})
+    c.commit()
+    assert a is True and b is False
+    assert c.execute("SELECT COUNT(*) FROM intervention_control_results").fetchone()[0]==1
+    c.close()
+
+
+# 8. model-aware : le primaire ne charge jamais les contrôles du secondaire
+def test_control_pairs_model_aware(test_db, monkeypatch):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); _mk_mr(c,"r1","mrS","sec","C_proprietary_api")
+    u=_mk_feat(c,1)
+    _mk_pred(c,"r1","mrP",u,1,{"negation_presence":"INCREASE"})
+    _mk_control(c,"r1","mrP",u,1,"negative_steering","residual_add_decoder","a","b")
+    _mk_control(c,"r1","mrS",u,1,"negative_steering","residual_add_decoder","a","b")
+    c.commit(); c.close()
+    monkeypatch.setattr(cs,"CLASSIFIER_BY_PROPERTY",{"negation_presence":lambda tb,ta:{"direction":"INCREASE"}})
+    pairs = load_intervention_control_pairs("r1","negative_steering",config=_CFG_IC,model_run_id="mrP",split="random")
+    assert len(pairs)==1 and pairs[0]["control_name"]=="negative_steering"
+
+
+# 9. split-aware
+def test_control_pairs_split_aware(test_db, monkeypatch):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP")
+    ur=_mk_feat(c,1,"random"); ue=_mk_feat(c,2,"easy")
+    for u,i in ((ur,1),(ue,2)):
+        _mk_pred(c,"r1","mrP",u,i,{"negation_presence":"INCREASE"})
+        _mk_control(c,"r1","mrP",u,i,"negative_steering","residual_add_decoder","a","b")
+    c.commit(); c.close()
+    monkeypatch.setattr(cs,"CLASSIFIER_BY_PROPERTY",{"negation_presence":lambda tb,ta:{"direction":"INCREASE"}})
+    pairs = load_intervention_control_pairs("r1","negative_steering",config=_CFG_IC,model_run_id="mrP",split="random")
+    assert {p["feature_uid"] for p in pairs}=={ur}
+
+
+# 10. OOD exclu si exclude_ood_from_primary=true
+def test_control_pairs_ood_excluded(test_db, monkeypatch):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); u=_mk_feat(c,1)
+    _mk_pred(c,"r1","mrP",u,1,{"negation_presence":"INCREASE"})
+    _mk_control(c,"r1","mrP",u,1,"negative_steering","residual_add_decoder","a","b",ood=1)   # OOD → exclu
+    c.commit(); c.close()
+    monkeypatch.setattr(cs,"CLASSIFIER_BY_PROPERTY",{"negation_presence":lambda tb,ta:{"direction":"INCREASE"}})
+    with _pytest.raises(RuntimeError, match="No intervention-control observations"):
+        load_intervention_control_pairs("r1","negative_steering",config=_CFG_IC,model_run_id="mrP",split="random")
+
+
+# 11. load_intervention_control_pairs : couple produit
+def test_load_control_pairs(test_db, monkeypatch):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); u=_mk_feat(c,1)
+    _mk_pred(c,"r1","mrP",u,1,{"negation_presence":"INCREASE"})
+    _mk_control(c,"r1","mrP",u,1,"random_feature_same_layer","residual_add_decoder","a","b",cuid="gpt2:res-jb:3:hook_resid_post:2")
+    c.commit(); c.close()
+    monkeypatch.setattr(cs,"CLASSIFIER_BY_PROPERTY",{"negation_presence":lambda tb,ta:{"direction":"DECREASE"}})
+    pairs = load_intervention_control_pairs("r1","random_feature_same_layer",config=_CFG_IC,model_run_id="mrP",split="random")
+    assert len(pairs)==1 and pairs[0]["predicted"]=="INCREASE" and pairs[0]["observed"]=="DECREASE"
+
+
+# 12-13. scoring contrôle : métriques secondaires + paired diff, model_run_id renseigné
+def test_score_intervention_controls(test_db, monkeypatch):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP")
+    for i in (1,2,3):
+        u=_mk_feat(c,i)
+        _mk_pred(c,"r1","mrP",u,i,{"negation_presence":"INCREASE"})
+        _mk_steer(c,"r1","mrP",u,i)                                   # primaire
+        _mk_control(c,"r1","mrP",u,i,"negative_steering","residual_add_decoder","a","b")
+    c.commit(); c.close()
+    monkeypatch.setattr(cs,"CLASSIFIER_BY_PROPERTY",{"negation_presence":lambda tb,ta:{"direction":"INCREASE"}})
+    cfg=_json.loads(_json.dumps(_CFG_IC)); cfg["intervention_controls"]["controls_to_run"]=["negative_steering"]
+    res = score_intervention_controls("r1", cfg)
+    assert res["primary"]["macro_f1"]==1.0 and "negative_steering" in res["controls"]
+    assert res["controls"]["negative_steering"]["coverage"]["n_shared_features"]==3
+    c=_C(test_db)
+    mf=c.execute("SELECT value,model_run_id FROM metrics WHERE metric_name='intervention_control_macro_f1:negative_steering'").fetchone()
+    pd=c.execute("SELECT COUNT(*) FROM metrics WHERE metric_name='intervention_control_paired_diff:negative_steering'").fetchone()[0]
+    nn=c.execute("SELECT COUNT(*) FROM metrics WHERE phase='p4_controls' AND model_run_id IS NULL").fetchone()[0]
+    c.close()
+    assert mf["model_run_id"]=="mrP" and pd==1 and nn==0
+
+
+# 14. contrôle activé mais non implémenté → NotImplementedError (avant toute génération)
+def test_diffmean_reft_not_implemented(test_db):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); c.commit(); c.close()
+    cfg=_json.loads(_json.dumps(_CFG_IC))
+    cfg["intervention_controls"]["run_in_pipeline"]=True
+    cfg["intervention_controls"]["controls_to_run"]=["diffmean_reft"]
+    with _pytest.raises(NotImplementedError, match="diffmean_reft"):
+        stz.run_intervention_controls("r1", cfg)
+
+
+# 15. absence de steering_results primaire → erreur claire
+def test_ready_missing_primary_steering(test_db):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); u=_mk_feat(c,1)
+    _mk_pred(c,"r1","mrP",u,1,{"negation_presence":"INCREASE"})       # prédiction mais PAS de steering
+    c.commit(); c.close()
+    with _pytest.raises(RuntimeError, match="steering_results primaire"):
+        stz.assert_intervention_controls_ready("r1", _CFG_IC)
+
+
+# 16. absence de prédictions MorphoRepr → erreur claire
+def test_ready_missing_predictions(test_db):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); u=_mk_feat(c,1); _mk_steer(c,"r1","mrP",u,1)
+    c.commit(); c.close()
+    with _pytest.raises(RuntimeError, match="prédiction MorphoRepr"):
+        stz.assert_intervention_controls_ready("r1", _CFG_IC)
+
+
+# 17. absence de candidates même couche : strict raise / non strict skip
+def test_no_candidates_strict_vs_lax(test_db, monkeypatch):
+    c=_C(test_db); _mk_run(c); _mk_mr(c,"r1","mrP"); _mk_feat(c,1,layer_index=7); c.commit(); c.close()
+    monkeypatch.setattr(stz, "_get_sae", lambda cfg, layer: _FakeSAE())
+    target={"feature_uid":"gpt2:res-jb:7:hook_resid_post:1","feature_index":1,"layer_index":7,
+            "activation_p99":2.0,"activation_mean":0.8,"activation_std":0.4,"nl_description":"x"}
+    strict=_json.loads(_json.dumps(_CFG_IC))            # strict_controls=true
+    with _pytest.raises(RuntimeError, match="aucune feature candidate"):
+        stz._build_control_plan("r1","mrP","random_feature_same_layer",target,strict)
+    lax=_json.loads(_json.dumps(_CFG_IC)); lax["intervention_controls"]["strict_controls"]=False
+    assert stz._build_control_plan("r1","mrP","random_feature_same_layer",target,lax) is None
+```
+
+```python
+# ─────────────────────────────────────────────
 # tests/test_batch_custom_id.py  (v6.2)
 # Les custom_id Batch API doivent être uniques même si feature_index est répété entre couches.
 # ─────────────────────────────────────────────
@@ -5858,7 +6725,7 @@ def test_steer_feature_integration_slow():
 ```python
 # orchestrator.py
 """
-Orchestrateur MorphoRepr v6.8.0 — run gelé et auditable.
+Orchestrateur MorphoRepr v6.9.0 — run gelé et auditable.
 
 Usage :
     python orchestrator.py --config configs/run_v1.yaml
@@ -6671,7 +7538,7 @@ Correctif **final** de propagation multi-modèle. `model_run_id` était présent
 
 **3. `get_unconsumed_batch(model_run_id=None)` résout le legacy.** Comme `batches.model_run_id` est NOT NULL, un filtre `IS NULL` ne pouvait plus rien matcher. La fonction résout désormais `ensure_legacy_model_run(run_id)` quand `model_run_id is None` (et filtre par égalité). Un batch legacy enregistré via `register_batch(..., model_run_id=None)` est de nouveau retrouvable. Test `test_get_unconsumed_batch_legacy_retrouvable`.
 
-**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.8.0 — 500 features"` (résidu v0.28 supprimé).
+**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.9.0 — 500 features"` (résidu v0.28 supprimé).
 
 **5. Reprise : restauration des `model_run_ids`.** Nouvelle fonction `restore_model_run_ids(run_id, config)` qui reconstruit `config['_runtime']['model_run_ids']` depuis la DB (rattachement par `model_name` au rôle déclaré : primary/secondary/replication). Appelée dans la branche `--resume` de l'orchestrateur. `steerer.run` ne retombe donc plus sur un model_run legacy quand un modèle primaire existe déjà en DB. Test `test_resume_restaure_model_run_ids`.
 
@@ -6775,3 +7642,34 @@ Prédictions **baselines (Option B)** pour `nl_labels` et `semantic_regex` : les
 **Tests ajoutés** (`tests/test_baseline_predictions.py`, déterministes — provider et/ou prédiction monkeypatchés, classifieurs via `cs.CLASSIFIER_BY_PROPERTY`) : chargement des annotations baselines ; sauvegarde des prédictions `predictor_nl_labels`/`predictor_semantic_regex` (model_run_id, feature_uid, status) ; format JSON accepté par `_extract_predicted_directions` ; absence d'annotation + `require_existing_baseline_annotations=true` → `RuntimeError` (rien de fabriqué) ; `assert_baseline_predictions_ready` (passe/échoue) ; `_load_pairs("nl_labels")` et `_load_pairs("semantic_regex")` ; `run()` avec comparaisons (scores MorphoRepr+NL+SemReg, paired diff, verdicts supériorité/non-infériorité, model_run_id jamais NULL) ; baseline absente → strict raise / non-strict skip sans verdict ; model-aware ; split-aware ; couverture (features partagées uniquement).
 
 **Statut.** `run_baseline_comparisons=true` est désormais possible **en dev run contrôlé** si les prédictions baselines existent. `run_intervention_controls()` reste un **contrat** (non implémenté ici). Aucun juge LLM dans la métrique primaire. Limites restantes : `keyword_tags`/`morphorepr_shuffled` non branchées ; `run_intervention_controls()` contractuel ; pas d'exécution réelle en CI standard (dev opt-in, provider réel requis) ; qualité des prédictions baselines dépendante du modèle primaire et des prompts (à geler avant tout full run) ; **aucune validation causale complète revendiquée**.
+
+---
+
+## 28. Changelog v6.8.0 → v6.9.0
+
+**Objectif.** Implémenter réellement `steerer.run_intervention_controls()` pour produire des **contrôles d'intervention** scorables par le **même chemin déterministe** que le traitement, afin de renforcer la crédibilité causale du score MorphoRepr (l'effet observé n'est pas dû au simple fait de générer deux textes, à une perturbation aléatoire du résiduel, à une feature aléatoire de même couche, à une feature de fréquence comparable, à la présence de l'annotation dans le prompt, ni à un artefact général). **Aucune validation scientifique complète n'est revendiquée** : la v6.9.0 rend seulement les contrôles **exécutables en dev run contrôlé**.
+
+**Changement de schéma — PREMIER depuis v6.5.3.** Nouvelle table DÉDIÉE `intervention_control_results` (et index `idx_control_results`). Le schéma passe de 16 à **17 tables**. Décision retenue (recommandée par le prompt) : table dédiée plutôt que réutilisation de `steering_results`, car un contrôle a parfois DEUX features — la `target_feature_uid` (dont la prédiction MorphoRepr est évaluée) et la `control_feature_uid` (celle réellement steerée) — ce que `steering_results` ne représente pas proprement. La table n'est **jamais** confondue avec le primaire ; `control_name` distingue les contrôles. `metrics` est inchangée.
+
+**Contrôles IMPLÉMENTÉS (5).**
+- `random_feature_same_layer` — steere une **autre** feature SAE de la même couche (magnitude relative primaire de la control feature), rattache le résultat à la target, conserve `control_feature_uid`.
+- `matched_activation_freq` — comme ci-dessus, mais la control feature minimise `abs(log(freq_target+eps) − log(freq_candidate+eps))` ; distance stockée dans `metadata_json`. Aucune candidate exploitable → skip explicite (strict → `RuntimeError`).
+- `random_direction_same_norm` — direction aléatoire dans le résiduel à la couche du target, normalisée à `‖sae.W_dec[target_index]‖`, magnitude primaire ; pas de `control_feature_uid` ; seed dérivée de `(seed, target_feature_uid, control_name)` ; seed + norme dans `metadata_json`.
+- `negative_steering` — même intervention que le traitement à magnitude **négative** (target = control), `magnitude_key="rel:-1.0"`.
+- `prompt_only` — `text_after` généré avec un prompt **enrichi** par l'annotation (sans aucun hook de steering) ; `intervention_space="prompt_only"` ; annotation (tronquée) dans `metadata_json`.
+
+**Contrôle NON implémenté.** `diffmean_reft` (baseline supervisée DiffMean/ReFT) est **reporté** : s'il est activé (clé booléenne ou `controls_to_run`), `run_intervention_controls()` lève `NotImplementedError` **avant toute génération** (aucune version factice).
+
+**`agents/steerer.py`.** `run_intervention_controls(run_id, config)` réécrit (no-op `{"status":"disabled"}` si `run_in_pipeline=false` ; vérifie `diffmean_reft`/contrôle inconnu → `NotImplementedError` avant génération ; `_get_model` + `assert_steering_ready` + `assert_intervention_controls_ready` ; boucle contrôles × targets avec reprise idempotente ; scoring si `score_controls=true`). Helpers ajoutés : `_primary_model_run_id`, `_primary_magnitude_key`, `_primary_magnitude` (réutilise la logique de magnitude de `run()`), `_controls_to_run` (`controls_to_run` prioritaire, sinon clés booléennes), `_load_control_targets` (model/split-aware), `_load_layer_candidates`, `_select_random_feature_same_layer`, `_select_matched_activation_freq`, `_make_random_direction_hook` (déterministe, `torch.Generator` seedé), `_derive_int_seed`, `_prompt_only_annotation`, `_enrich_prompt`, `_control_rows_exist`, `_insert_intervention_control_result` (idempotent non silencieux), `_build_control_plan` (isole ce qui diffère entre contrôles), `_run_control_for_target`, `assert_intervention_controls_ready` (DB-only : prédictions MorphoRepr `predictor`/`predictor_morphorepr` + `steering_results` primaires présents). Réutilise `_get_sae`, `load_probe_sentences`, `_generate_text`, `_measure_feature_activation`, `_is_ood`, `_tokens_from_prompt`, `_get_hook_name_from_sae`, `_make_residual_add_decoder_hook`, `_position_indices`. `steer_feature()`, `run()` et `_insert_steering_result` **inchangés**.
+
+**`agents/causal_scorer.py`.** `load_intervention_control_pairs(run_id, control_name, method="morphorepr", config, model_run_id, split)` : couples prédiction/observation pour UN contrôle (observations depuis `intervention_control_results`, prédictions MorphoRepr depuis `agent_outputs`, **mêmes classifieurs déterministes**, `ROBUST_PROPERTIES`, OOD-aware ; `intervention_space="prompt_only"` pour le contrôle prompt_only sinon espace primaire). À NE PAS confondre avec `_load_pairs()` primaire. `score_intervention_controls(run_id, config)` : score primaire MorphoRepr + pour chaque contrôle `compute_global_macro_f1` + `paired_diff_bootstrap` (clusterisé par feature) + couverture ; écrit `metric_name="intervention_control_macro_f1:<nom>"` et `"intervention_control_paired_diff:<nom>"` (`baseline="control:<nom>"`, `phase='p4_controls'`, `model_run_id` renseigné). Strict → `RuntimeError` si un contrôle activé est absent ; sinon skip explicite **sans verdict**. Réutilise `_extract_predicted_directions`, `_observe_property_direction`, `CLASSIFIER_BY_PROPERTY`, `compute_global_macro_f1`, `paired_diff_bootstrap`, `ACCEPTED_PREDICTOR_AGENTS`. `_load_pairs()` et `run()` **inchangés**.
+
+**Config (`intervention_controls`).** Clés booléennes héritées **conservées** (compat). Ajouts : `strict_controls` (true), `score_controls` (true), `controls_to_run` (liste explicite, prioritaire sur les booléens), `prompt_only_annotation_source` (`morphorepr`), `random_direction_seed_mode` (`feature_uid`), `matched_activation_freq_log_eps` (1e-9). `run_in_pipeline` reste **`false`** (non auto-activé).
+
+**Orchestrateur.** La phase `p4_controls` (déjà présente) appelle `steerer.run_intervention_controls(rid, cfg)`, qui s'auto-garde via `intervention_controls.run_in_pipeline` (no-op si `false`). Aucune auto-activation ajoutée.
+
+**Tests ajoutés** (`tests/test_intervention_controls.py`, 17 cas, déterministes — sélecteurs/seed purs, `_FakeSAE`/`_FakeModel` légers, insertions directes dans `intervention_control_results`, classifieurs via `cs.CLASSIFIER_BY_PROPERTY`) : no-op désactivé ; sélection feature même couche ; matched activation freq (plus proche en log) ; random direction déterministe + norme cible ; negative steering (`rel:1.0` → `rel:-1.0`, magnitude négative) ; prompt_only sans hook (prompt enrichi, `intervention_space="prompt_only"`) ; insertion idempotente ; model-aware ; split-aware ; OOD exclu ; `load_intervention_control_pairs` ; scoring (métriques secondaires écrites, `metric_name` contient le contrôle, `model_run_id` renseigné) ; paired diff primaire vs contrôle (features partagées) ; `diffmean_reft` activé → `NotImplementedError` ; absence steering primaire → `RuntimeError` ; absence prédictions MorphoRepr → `RuntimeError` ; absence candidates (strict raise / non-strict skip).
+
+**Garanties.** Les contrôles produisent de **vrais** `text_before`/`text_after` ; sont strictement rattachés à `run_id`, `model_run_id`, `target_feature_uid`, `control_name` ; ne polluent **pas** `steering_results` ; sont scorés par les **mêmes** classifieurs déterministes ; écrits comme **métriques SECONDAIRES** (jamais le primaire) ; comparés **appariés par feature** ; OOD exclus si `exclude_ood_from_primary=true` ; un contrôle absent/non implémenté ne produit **jamais** de faux verdict. Strictement model/split/`intervention_space`-aware. Aucun juge LLM. `steer_feature()` (v6.6.1), `_load_pairs()` (v6.7.0) et prédictions baselines Option B (v6.8.0) intacts. `steering.run_in_pipeline`, `causal_scoring.run_in_pipeline` et `intervention_controls.run_in_pipeline` restent `false`.
+
+**Statut.** `intervention_controls.run_in_pipeline=true` est désormais possible **en dev run contrôlé** (modèle proxy open-weight + prédictions MorphoRepr + steering primaire présents). Limites restantes : `diffmean_reft` non implémenté (reporté) ; `keyword_tags`/`morphorepr_shuffled` non branchées côté prédictions baselines ; pas d'exécution réelle en CI standard (intégration dev opt-in, `MORPHOREPR_RUN_DEV_CONTROLS=1`, provider/SAE réels requis) ; la sémantique de l'activation mesurée pour `random_feature_same_layer`/`matched_activation_freq` porte sur la **control feature** steerée (la target n'est pas re-mesurée), choix documenté ; **aucune validation causale complète revendiquée** (interprétation = faisceau d'indices, pas de verdict scientifique dur en v6.9.0). Les claims du papier (v0.29) sont **inchangés**.
