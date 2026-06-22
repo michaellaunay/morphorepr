@@ -1,8 +1,7 @@
-# MorphoRepr — Complete Test Procedure (v6.7.0)
+# MorphoRepr — Complete Test Procedure (v6.8.0)
 ## Robust Experimental Infrastructure for Reproducible Evaluation
 
-*Version 6.7.0 — June 2026. Consistent with paper (≥ v0.29). **Functional extension of causal scoring**: `causal_scorer._load_pairs()` is now actually implemented. It assembles prediction/observation pairs `(feature_uid, robust property)` for the deterministic primary metric, in a strictly **model-aware, split-aware, intervention-space-aware, and OOD-aware** manner, reading predictions from `agent_outputs` and applying deterministic classifiers to `text_before`/`text_after` from `steering_results` produced by the v6.6.x `steer_feature()` path. No LLM judge is used in the primary metric. This unlocks a **minimal causal dev run** for MorphoRepr. **No full scientific validation is claimed**: baseline comparisons are disabled by default (Option A: baseline predictions are not wired yet, so the MorphoRepr score is written alone, without superiority/non-inferiority verdict); `run_intervention_controls()` remains a contract; `causal_scoring.run_in_pipeline` remains `false` and is not automatically enabled. No schema change relative to v6.5.3: the existing `metrics.model_run_id` column is now populated for model-specific scores. The multi-model layer and `steer_feature()` v6.6.1 remain intact. See Section 26.*
-
+*Version 6.8.0 — June 2026. Consistent with paper (≥ v0.29). **Baseline predictions (Option B)** for `nl_labels` and `semantic_regex`: the new `agents/baseline_predictor.py` module produces canonical direction-prediction `agent_outputs` (agent names `predictor_nl_labels` / `predictor_semantic_regex`) from annotations stored in the `baselines` table, through the primary provider (Rule 11) and **separate prompts** that avoid MorphoRepr terminology. Steering is **not** re-run: only the prediction path differs, which makes the **primary paired comparisons** executable in a controlled dev run — superiority vs NL labels and non-inferiority vs Semantic Regexes. `causal_scorer.run()` now computes, when `run_baseline_comparisons=true`, each baseline's own score, the paired difference, the verdict and **coverage**, guarded by `assert_baseline_predictions_ready` (strict → `RuntimeError`; otherwise explicit skip **without a verdict**; never a false `pass`/`fail`). `keyword_tags` and `morphorepr_shuffled` remain **not wired**. No LLM judge is used in the primary metric. No schema change relative to v6.5.3 (`metrics.model_run_id` is populated for every model-specific metric). MorphoRepr `_load_pairs()` (v6.7.0), the multi-model layer and `steer_feature()` remain intact; `run_intervention_controls()` remains a contract; `causal_scoring.run_in_pipeline` and `baseline_predictions.enabled` remain `false` and are not automatically enabled. **No full scientific result is claimed.** See Section 27.*
 ---
 
 ## Guiding Principles
@@ -35,7 +34,7 @@ The primary steering magnitude is **feature-normalized** (a multiple of the feat
 **Rule 7 — Comparison on a shared set AND global utility**
 The head-to-head causal-validity comparison (MorphoRepr vs NL labels vs Semantic Regexes) is computed **on the same feature set** — the intersection of features covered by MorphoRepr (confidence ≥ 0.5): this is **conditional performance**. Since this says nothing about utility when coverage differs strongly, we also **systematically** report **global (end-to-end) utility** on the full random set (`coverage × mean causal score`, or an integrated score with UNCOVERED = abstention/zero score, pre-registered rule). The primary causal-validity score is a **macro-F1 computed globally over all (feature, robust property) pairs**; the criterion is **superiority** vs NL (CI of the paired difference excluding 0) and **non-inferiority** vs Semantic Regexes (CI lower bound > −δ, pre-registered `nim_delta` margin).
 
-**Rule 8**Rule 8 — Deterministic primary metric (without an LLM judge)**
+**Rule 8 — Deterministic primary metric (without an LLM judge)**
 The prediction/observation comparison for the primary metric is **deterministic** : the direction predicted by the prediction agent is compared by **code** to the direction measured by the **pre-registered classifiers**. No LLM judge intervenes in the primary metric. An LLM judge (`qualitative_judge`) is reserved for qualitative analyses, ambiguous cases, and assisted audit (secondary metrics). The bootstrap is **clustered by feature** (the resampling unit is the feature, not the feature-property pair).
 
 **Rule 9 — Phase 4 is an implementation contract, not an implementation**
@@ -64,12 +63,12 @@ A `feature_index` alone is not sufficient: the same index may exist in several l
 
 **Artifacts to archive for reproduction.** For every `model_run`: exact model and tokenizer revisions, `weights_sha256`, `tokenizer_sha256`, Docker/Conda image (`inference_env_hash`), CUDA version, backend version, `precision`/`quantization`, inference parameters (`generation_params_json`: temperature, top_p, seed, max_new_tokens), hashed prompts, and **raw outputs**. Without these artifacts, a run cannot claim reproducibility and cannot support a primary claim.
 
-**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.7.0**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
+**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.8.0**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
 
 ```markdown
 ## MorphoRepr — repository status
 - Paper: v0.29 (open-model policy; primary claims on an open model).
-- Test procedure: v6.7.0 (`steer_feature()` and `causal_scorer._load_pairs()` implemented for a minimal causal dev run; Phase 4 disabled by default).
+- Test procedure: v6.8.0 (`steer_feature()`, `causal_scorer._load_pairs()`, and baseline predictions for `nl_labels` / `semantic_regex` wired for controlled dev runs; Phase 4 disabled by default).
 - Causal-validity criterion: superiority over natural-language labels (feature-clustered paired-difference CI excluding 0) AND non-inferiority to Semantic Regexes (pre-registered δ margin). The old “non-overlapping CIs” criterion is OBSOLETE.
 
 ## Reproducibility and open-weight models
@@ -98,6 +97,8 @@ morphorepr-pipeline/
 │   ├── label_agent_v1.txt
 │   ├── encoder_agent_v1.txt
 │   ├── predictor_agent_v1.txt
+│   ├── predictor_nl_labels_v1.txt
+│   ├── predictor_semantic_regex_v1.txt
 │   ├── fidelity_judge_v1.txt
 │   └── causal_judge_v1.txt
 ├── agents/
@@ -2534,7 +2535,7 @@ def generate_shuffles(run_id: str, config: dict, n_repeats: Optional[int] = None
 
 This section implements the **primary deterministic causal metric** (Rule 8): the direction predicted by the prediction agent, based on the annotation alone, is compared in code with the direction observed by pre-registered deterministic classifiers. The score is a **global macro-F1 over all `(feature_uid, robust property)` pairs**, not a per-feature score averaged afterward. Bootstrap confidence intervals are **feature-clustered**, with `feature_uid` as the resampling unit.
 
-In v6.7.0, `_load_pairs()` is no longer a contract for `method="morphorepr"`: it reads prediction outputs from `agent_outputs`, reads steering observations from `steering_results`, applies the deterministic robust-property classifiers to `text_before` / `text_after`, and assembles strict model/split/intervention-space/OOD-aware pairs. Baseline methods remain Option A by default: they are not fabricated, and comparisons are skipped unless baseline prediction outputs are explicitly wired.
+In v6.8.0, `_load_pairs()` remains implemented for `method="morphorepr"`, and baseline prediction Option B is now wired for `nl_labels` and `semantic_regex`. The scorer reads prediction outputs from `agent_outputs`, reads steering observations from `steering_results`, applies the deterministic robust-property classifiers to `text_before` / `text_after`, and assembles strict model/split/intervention-space/OOD-aware pairs. Baselines are not fabricated: paired comparisons only run when the corresponding baseline prediction outputs exist and pass `assert_baseline_predictions_ready`.
 
 ```python
 # agents/causal_scorer.py
@@ -2883,7 +2884,7 @@ def run(run_id: str, config: dict):
                 """, (str(uuid4()), run_id, model_run_id, split, d["diff"], d["ci_low"],
                       d["ci_high"], d["n_shared_features"], base, datetime.utcnow().isoformat()))
     else:
-        logger.warning("Baseline comparisons disabled (causal_scoring.run_baseline_comparisons=false). "
+        logger.warning("Baseline comparisons disabled (causal_scoring.run_baseline_comparisons=false; Option B is available but off by default). "
                        "Writing MorphoRepr score only, without superiority/non-inferiority verdict.")
 
     logger.info("Global causal score: macro-F1=%s CI95=%s", point["macro_f1"], ci)
@@ -4217,7 +4218,7 @@ Main changes:
 - Tests are added or extended for dtype preservation, unsupported generation kwargs, shape errors, tuple encode outputs, and opt-in slow integration.
 - The steering section is now described as an open-weight proxy implementation with remaining contracts, rather than as a pure implementation contract.
 - v6.6.0-specific wording is replaced by the broader v6.6.x objective.
-- The integrated README points to paper v0.29 and test procedure v6.7.0.
+- The integrated README points to paper v0.29 and test procedure v6.8.0.
 
 Still not implemented:
 
@@ -4277,6 +4278,23 @@ pytest tests/test_steer_feature.py tests/test_causal_scorer.py -v
 MORPHOREPR_RUN_DEV_CAUSAL=1 pytest tests/test_pipeline_e2e.py -v -k causal
 ```
 
-## Current v6.7.0 status summary
+## Current v6.8.0 status summary
 
 `steer_feature()` is implemented for the open-weight proxy path, and `causal_scorer._load_pairs()` is implemented for a minimal MorphoRepr causal dev score. The pipeline still does not claim full causal validation: baseline comparisons remain off by default, `run_intervention_controls()` is not implemented, and Phase 4 remains disabled in the default pipeline configuration. The next major tasks are wiring baseline prediction outputs (Option B) and implementing intervention controls.
+
+
+---
+
+## 27. Changelog v6.7.0 → v6.8.0
+
+**Baseline prediction Option B.** Adds baseline prediction outputs for `nl_labels` and `semantic_regex` through `agents/baseline_predictor.py`. The module reads baseline annotations from the `baselines` table and writes canonical direction predictions to `agent_outputs` under `predictor_nl_labels` and `predictor_semantic_regex`.
+
+**Separate baseline prompts.** Adds `prompts/predictor_nl_labels_v1.txt` and `prompts/predictor_semantic_regex_v1.txt`. These prompts do not use MorphoRepr terminology. The NL baseline is scored from natural-language labels; the Semantic Regex baseline is scored from the regex annotation itself.
+
+**Paired comparisons are now runnable in controlled dev runs.** With `baseline_predictions.enabled=true` followed by `causal_scoring.run_baseline_comparisons=true`, the scorer can compute the MorphoRepr score, the baseline scores, paired differences, coverage, superiority vs NL labels and non-inferiority vs Semantic Regexes.
+
+**No fake baseline predictions.** Missing annotations or missing prediction outputs trigger `RuntimeError` in strict mode. In non-strict mode, a baseline may be explicitly skipped, but no verdict is produced. There is never a false `pass` or `fail` for an absent baseline.
+
+**Still not wired.** `keyword_tags` and `morphorepr_shuffled` remain explicitly unsupported in the baseline-prediction path. `run_intervention_controls()` remains a contract.
+
+**Default safety.** `baseline_predictions.enabled=false`, `causal_scoring.run_baseline_comparisons=false`, and `causal_scoring.run_in_pipeline=false` remain the defaults. No full causal validation and no published scientific result are claimed in v6.8.0. Paper v0.29 scientific claims remain unchanged.

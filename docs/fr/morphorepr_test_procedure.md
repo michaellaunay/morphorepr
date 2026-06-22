@@ -1,7 +1,7 @@
-# MorphoRepr — Procédure de test complète (v6.7.0)
+# MorphoRepr — Procédure de test complète (v6.8.0)
 ## Infrastructure expérimentale robuste pour une évaluation reproductible
 
-*Version 6.7.0 — Juin 2026. Cohérente avec l'article (≥ v0.29). **Extension fonctionnelle du scoring causal** : `causal_scorer._load_pairs()` est désormais **réellement implémenté** — il assemble les couples prédiction/observation `(feature_uid, propriété robuste)` de la métrique primaire déterministe, de façon **strictement model-aware, split-aware et OOD-aware**, en lisant les prédictions depuis `agent_outputs` et en appliquant les classifieurs déterministes aux `text_before/text_after` de `steering_results` (chemin steer_feature v6.6.x). Aucun juge LLM dans le primaire. Ceci débloque un **dev run causal minimal** pour MorphoRepr. **Pas de validation scientifique complète** : les comparaisons baselines sont désactivées par défaut (Option A : prédictions baselines non branchées → score MorphoRepr seul, sans verdict de supériorité/non-infériorité) ; `run_intervention_controls()` reste un contrat ; `causal_scoring.run_in_pipeline` reste `false` (non activé automatiquement). Aucun changement de schéma vs v6.5.3 (la colonne `metrics.model_run_id` existante est désormais renseignée pour le score d'un modèle précis). Couche multi-modèle et `steer_feature()` v6.6.1 intactes. Voir Section 26.*
+*Version 6.8.0 — Juin 2026. Cohérente avec l'article (≥ v0.29). **Prédictions baselines (Option B)** pour `nl_labels` et `semantic_regex` : nouveau module `agents/baseline_predictor.py` qui produit des `agent_outputs` de prédiction de directions au format canonique (agent_name `predictor_nl_labels` / `predictor_semantic_regex`) à partir des annotations de la table `baselines`, via le provider primaire (Règle 11) et des **prompts séparés** (aucune terminologie MorphoRepr). Le steering n'est **pas** refait : seul le chemin de prédiction diffère, ce qui rend les **comparaisons appariées primaires** exécutables en dev run contrôlé — supériorité vs NL, non-infériorité vs Semantic Regexes. `causal_scorer.run()` calcule désormais, sous `run_baseline_comparisons=true`, le score propre de chaque baseline, la différence appariée, le verdict et la **couverture**, avec une garde `assert_baseline_predictions_ready` (strict → `RuntimeError` ; sinon skip **sans verdict** ; jamais de faux `pass`/`fail`). `keyword_tags` et `morphorepr_shuffled` restent **non branchées**. Aucun juge LLM dans le primaire. Aucun changement de schéma vs v6.5.3 (`metrics.model_run_id` renseigné pour toute métrique model-specific). `_load_pairs()` MorphoRepr (v6.7.0), couche multi-modèle et `steer_feature()` intacts ; `run_intervention_controls()` reste un contrat ; `causal_scoring.run_in_pipeline` et `baseline_predictions.enabled` restent `false` (non auto-activés). **Aucun full scientific result revendiqué.** Voir Section 27.*
 
 ---
 
@@ -39,7 +39,7 @@ Le tête-à-tête de validité causale (MorphoRepr vs étiquettes NL vs Semantic
 La comparaison prédiction/observation de la métrique primaire est **déterministe** : la direction prédite par l'agent de prédiction est comparée par **code** à la direction mesurée par les **classifieurs pré-enregistrés**. Aucun juge LLM n'intervient dans la métrique primaire. Un juge LLM (`qualitative_judge`) est réservé aux analyses qualitatives, cas ambigus et audit assisté (métriques secondaires). Le bootstrap est **clusterisé par feature** (l'unité de rééchantillonnage est la feature, pas le couple feature-propriété).
 
 **Règle 9 — La Phase 4 reste gardée tant qu'un dev run ne l'a pas validée**
-`steer_feature()` est **implémenté pour le chemin proxy open-weight** (TransformerLens + SAE Lens, `residual_add_decoder`) ; les chemins nnsight / modèle de production et l'espace `sae_latent_clamp` lèvent `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`). `causal_scorer._load_pairs()` est **implémenté** (assemblage déterministe prédiction/observation, métrique primaire, model/split/OOD-aware — Sections 8 et 26) ; `run_intervention_controls()` reste un contrat. La Phase 4 n'est pas scientifiquement validée (comparaisons baselines désactivées par défaut, `causal_scoring.run_in_pipeline=false`).
+`steer_feature()` est **implémenté pour le chemin proxy open-weight** (TransformerLens + SAE Lens, `residual_add_decoder`) ; les chemins nnsight / modèle de production et l'espace `sae_latent_clamp` lèvent `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`). `causal_scorer._load_pairs()` est **implémenté** (assemblage déterministe prédiction/observation, métrique primaire, model/split/OOD-aware — Sections 8 et 27) ; `run_intervention_controls()` reste un contrat. La Phase 4 n'est pas scientifiquement validée (comparaisons baselines désactivées par défaut, `causal_scoring.run_in_pipeline=false`).
 
 **Règle 10 — Identité de feature robuste**
 Un `feature_index` seul ne suffit pas : le même index peut exister dans plusieurs couches, releases SAE ou modèles. L'identité canonique est `feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}`, avec contrainte d'unicité. Au sein d'un run unique (un modèle, une release, un ensemble de couches), `feature_index` reste un identifiant pratique pour les jointures ; `feature_uid` garantit l'unicité cross-couche/cross-SAE et est propagé aux tables aval.
@@ -74,12 +74,12 @@ Les conclusions scientifiques principales ne doivent pas dépendre uniquement d'
 
 **Artefacts à archiver pour la reproduction.** Pour chaque `model_run` : révision exacte du modèle et du tokenizer, `weights_sha256`, `tokenizer_sha256`, image Docker/Conda (`inference_env_hash`), version CUDA, version du backend, `precision`/`quantization`, paramètres d'inférence (`generation_params_json` : température, top_p, seed, max_new_tokens), prompts (hashés, Règle 3) et **sorties brutes**. Sans ces artefacts, un run ne peut pas prétendre à la reproductibilité et ne peut pas porter de claim primaire (garde `validate_model_providers`, Section 5 bis).
 
-**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.7.0**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
+**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.8.0**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
 
 ```markdown
 ## MorphoRepr — état du dépôt
 - Article : v0.29 (politique de modèles ouverts ; claims primaires sur modèle ouvert).
-- Procédure de test : v6.7.0 (steer_feature + causal_scorer._load_pairs implémentés pour un dev run causal ; Phase 4 désactivée par défaut).
+- Procédure de test : v6.8.0 (prédictions baselines Option B nl_labels/semantic_regex câblées pour dev run ; Phase 4 désactivée par défaut).
 - Critère de validité causale : supériorité vs étiquettes NL (IC de la différence appariée,
   clusterisé par feature, excluant 0) ET non-infériorité vs Semantic Regexes (marge δ
   pré-enregistrée). NB : l'ancien critère « IC non chevauchants » est OBSOLÈTE.
@@ -117,6 +117,8 @@ morphorepr-pipeline/
 │   ├── label_agent_v1.txt
 │   ├── encoder_agent_v1.txt
 │   ├── predictor_agent_v1.txt
+│   ├── predictor_nl_labels_v1.txt      ← prédicteur baseline NL (Option B, v6.8.0)
+│   ├── predictor_semantic_regex_v1.txt ← prédicteur baseline Semantic Regex (Option B, v6.8.0)
 │   ├── fidelity_judge_v1.txt
 │   └── causal_judge_v1.txt
 ├── agents/
@@ -129,6 +131,8 @@ morphorepr-pipeline/
 │   ├── fidelity.py
 │   ├── steerer.py                   ← spécifié complètement en Section 7
 │   ├── predictor.py
+│   ├── baseline_predictor.py        ← prédictions baselines NL / Semantic Regex (Option B, §8 bis)
+│   ├── causal_scorer.py             ← score causal déterministe + _load_pairs (§8)
 │   ├── judge.py
 │   └── reporter.py
 ├── classifiers/
@@ -170,6 +174,7 @@ morphorepr-pipeline/
 │   ├── test_model_run_propagation.py ← propagation effective de model_run_id (+ Phase 4 model-aware)
 │   ├── test_steer_feature.py        ← steer_feature (chemin proxy open-weight, durci v6.6.1)
 │   ├── test_causal_scorer.py        ← scoring causal + _load_pairs (assemblage prédiction/observation, v6.7.0)
+│   ├── test_baseline_predictions.py ← prédictions baselines Option B (nl_labels, semantic_regex, v6.8.0)
 │   └── test_pipeline_e2e.py
 ├── orchestrator.py
 ├── requirements.txt
@@ -194,7 +199,7 @@ morphorepr-pipeline/
 # configs/run_v1.yaml
 
 run_id_prefix: "morphorepr_v1"
-description: "Full frozen run MorphoRepr v0.29 / procedure v6.7.0 — 500 features"
+description: "Full frozen run MorphoRepr v0.29 / procedure v6.8.0 — 500 features"
 
 # Reproductibilité
 git_commit: "FILL_BEFORE_LAUNCH"    # vérifié contre le HEAD Git réel à l'init
@@ -281,6 +286,8 @@ prompts:
   label_agent:    "prompts/label_agent_v1.txt"
   encoder:        "prompts/encoder_agent_v1.txt"
   predictor:      "prompts/predictor_agent_v1.txt"
+  predictor_nl_labels:      "prompts/predictor_nl_labels_v1.txt"       # baseline NL (Option B, v6.8.0)
+  predictor_semantic_regex: "prompts/predictor_semantic_regex_v1.txt"  # baseline Semantic Regex (Option B)
   fidelity_judge: "prompts/fidelity_judge_v1.txt"
   causal_judge:   "prompts/causal_judge_v1.txt"
 
@@ -303,10 +310,12 @@ clustering:
 # Steering SAE
 steering:
   # `steer_feature()` est IMPLÉMENTÉ pour le chemin proxy open-weight (TransformerLens + SAE
-  # Lens, Section 7). Phase 4 reste néanmoins DÉSACTIVÉE par défaut tant que (a) `assert_steering_ready()`
-  # n'a pas été validé sur un dev run (proxy_model.enabled=true) ET (b) le scoring causal reste
-  # contractuel : `causal_scorer._load_pairs()` est implémenté (v6.7.0), mais les comparaisons
-  # baselines sont désactivées par défaut. Passer à true UNIQUEMENT après (a).
+  # Lens, Section 7), et `causal_scorer._load_pairs()` + les prédictions baselines Option B
+  # (nl_labels, semantic_regex) sont câblés. Phase 4 reste néanmoins DÉSACTIVÉE par défaut tant
+  # que (a) `assert_steering_ready()` n'a pas été validé sur un dev run (proxy_model.enabled=true)
+  # ET (b) les comparaisons baselines / contrôles d'intervention n'ont pas été exécutés dans un
+  # dev run contrôlé (baseline_predictions.enabled + run_baseline_comparisons ; run_intervention_controls
+  # reste un contrat). Passer à true UNIQUEMENT après (a).
   run_in_pipeline: false
   # Magnitude PRIMAIRE normalisée par feature : multiple du 99e percentile (activation_p99).
   # La magnitude absolue +5 (Anthropic, 2024) est conservée comme condition SECONDAIRE/historique.
@@ -362,12 +371,27 @@ run_mode: "full"                     # "dev" | "pilot" | "full"
 # Scoring causal (Phase 4) — métrique primaire déterministe. `causal_scorer._load_pairs()` est
 # IMPLÉMENTÉ (assemblage prédiction/observation, model-aware, split-aware, OOD-aware). Le scoring
 # reste DÉSACTIVÉ par défaut (`run_in_pipeline=false`) ; il gère p4_predict, p4_score ET
-# p4_qualitative (sans prédictions ni steering, ces phases n'ont pas de matière). Les
-# comparaisons baselines sont séparément désactivées par défaut (Option A v6.7.0 : prédictions
-# baselines non encore branchées) → score MorphoRepr seul, sans verdict de supériorité.
+# p4_qualitative (sans prédictions ni steering, ces phases n'ont pas de matière). Les prédictions
+# baselines (Option B, v6.8.0) sont câblées pour nl_labels et semantic_regex (module
+# baseline_predictor) ; les comparaisons appariées restent gardées par run_baseline_comparisons.
 causal_scoring:
   run_in_pipeline: false
   run_baseline_comparisons: false    # true uniquement si les prédictions baselines existent (Option B)
+  strict_baselines: true             # true → une baseline demandée mais absente lève RuntimeError ;
+                                     # false → skip explicite SANS verdict (jamais de faux pass/fail)
+
+# Prédictions BASELINES (Option B, v6.8.0). Produit des agent_outputs de prédiction de directions
+# pour les baselines, au MÊME format que MorphoRepr (agent_name predictor_<méthode>), à partir des
+# annotations de la table `baselines`. Désactivé par défaut ; en full run, ne pas activer sans gel
+# des prompts/hashes. Seules nl_labels et semantic_regex sont branchées en v6.8.0.
+baseline_predictions:
+  enabled: false
+  methods:
+    - nl_labels
+    - semantic_regex
+  run_number: 1
+  require_existing_baseline_annotations: true   # pas d'annotation baseline → erreur (jamais fabriquée)
+  skip_missing_annotations: false               # true → features sans annotation ignorées (log), sans erreur
 
 # Modèle de validation — proxy open-weight PAR DÉFAUT (Règle 5).
 # Mettre enabled=false uniquement si un accès direct aux activations d'un modèle
@@ -463,10 +487,10 @@ seed: 42
 
 ---
 
-## 3. Schéma SQLite complet (v6.7.0)
+## 3. Schéma SQLite complet (v6.8.0)
 
 ```sql
--- db/schema.sql  —  Version 6.7.0 (aucun changement de schéma vs 6.5.3), ne jamais modifier après le full run
+-- db/schema.sql  —  Version 6.8.0 (aucun changement de schéma vs 6.5.3), ne jamais modifier après le full run
 
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -2463,7 +2487,7 @@ steer_feature() est IMPLÉMENTÉ pour le CHEMIN PROXY OPEN-WEIGHT (TransformerLe
 espace 'residual_add_decoder'). Les chemins nnsight / modèle de production NE SONT PAS
 implémentés (NotImplementedError explicite), de même que l'espace 'sae_latent_clamp'.
 run_intervention_controls() reste un CONTRAT. causal_scorer._load_pairs() est IMPLÉMENTÉ
-(assemblage déterministe prédiction/observation, métrique primaire — Sections 8 et 26).
+(assemblage déterministe prédiction/observation, métrique primaire — Sections 8 et 27).
 Phase 4 reste DÉSACTIVÉE par défaut (steering.run_in_pipeline=false) ; assert_steering_ready()
 doit passer sur un dev run avant tout pilot/full run avec steering activé (Règle 9). L'objectif
 de la série v6.6.x est un dev run de Phase 4 testable, PAS une validation scientifique de la Phase 4.
@@ -3675,58 +3699,415 @@ def _load_pairs(run_id: str,
     return pairs
 
 
+def assert_baseline_predictions_ready(run_id: str, model_run_id: str,
+                                      methods: list[str], split: str,
+                                      min_features: int = 1) -> None:
+    """Garde pré-comparaison (v6.8.0) : pour chaque baseline demandée, vérifie qu'il existe des
+    annotations dans `baselines` ET des prédictions `agent_outputs` (agent_name attendu) pour CE
+    model_run_id et CE split (jointure `features`). Lève RuntimeError sinon — on ne produit JAMAIS
+    de verdict sur une baseline absente."""
+    with get_conn() as conn:
+        for method in methods:
+            agents = ACCEPTED_PREDICTOR_AGENTS.get(method)
+            if not agents:
+                raise NotImplementedError(
+                    f"assert_baseline_predictions_ready : méthode inconnue {method!r}.")
+            ph = ",".join("?" for _ in agents)
+            n_annot = conn.execute("""
+                SELECT COUNT(DISTINCT b.feature_uid) FROM baselines b
+                JOIN features f ON f.feature_uid = b.feature_uid
+                WHERE b.run_id=? AND b.model_run_id=? AND b.baseline_name=? AND f.split=?
+            """, (run_id, model_run_id, method, split)).fetchone()[0]
+            n_pred = conn.execute(f"""
+                SELECT COUNT(DISTINCT ao.feature_uid) FROM agent_outputs ao
+                JOIN features f ON f.feature_uid = ao.feature_uid
+                WHERE ao.run_id=? AND ao.model_run_id=? AND ao.status='ok'
+                  AND ao.agent_name IN ({ph}) AND f.split=?
+            """, (run_id, model_run_id, *agents, split)).fetchone()[0]
+            if n_pred < min_features:
+                raise RuntimeError(
+                    f"Baseline '{method}' non prête : {n_pred} prédiction(s) trouvée(s) "
+                    f"(agent_name ∈ {agents}, run_id={run_id}, model_run_id={model_run_id}, "
+                    f"split={split} ; annotations baselines présentes={n_annot}). Lancer "
+                    f"baseline_predictor.run (baseline_predictions.enabled=true) d'abord."
+                )
+
+
 def run(run_id: str, config: dict):
     """Métrique primaire : macro-F1 global sur couples + bootstrap clusterisé par feature.
     STRICTEMENT model-aware (modèle primaire) et split-aware. Persiste dans metrics AVEC
-    model_run_id (NULL réservé aux agrégats cross-modèles). Les comparaisons baselines ne sont
-    exécutées que si causal_scoring.run_baseline_comparisons=true (Option A par défaut : score
-    MorphoRepr seul, sans verdict de supériorité/non-infériorité)."""
+    model_run_id (NULL réservé aux agrégats cross-modèles).
+
+    Comparaisons baselines (Option B, v6.8.0) exécutées seulement si
+    causal_scoring.run_baseline_comparisons=true. Pour chaque baseline demandée : garde de
+    readiness (strict → RuntimeError ; sinon skip explicite SANS verdict), score propre de la
+    baseline (causal_macro_f1_global, baseline=<nom>), différence appariée (supériorité vs NL ;
+    non-infériorité vs Semantic Regexes), et couverture (paires MorphoRepr/baseline, features
+    partagées). Aucun verdict sur une baseline absente."""
     from utils.db_utils import ensure_legacy_model_run
-    nim   = config["thresholds"].get("nim_delta", 0.05)
-    split = config.get("primary_split", "random")
+    nim    = config["thresholds"].get("nim_delta", 0.05)
+    split  = config.get("primary_split", "random")
+    n_boot = config["stats"].get("bootstrap_resamples", 10000)
+    seed   = config.get("seed", 42)
     model_run_id = (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
                     or ensure_legacy_model_run(run_id))
 
     mr    = _load_pairs(run_id, "morphorepr", config=config, model_run_id=model_run_id, split=split)
     point = compute_global_macro_f1(mr)
-    ci    = feature_clustered_bootstrap(mr, config["stats"].get("bootstrap_resamples", 10000),
-                                        config.get("seed", 42))
-    results = {"morphorepr": {**point, **ci}, "comparisons": {}}
+    ci    = feature_clustered_bootstrap(mr, n_boot, seed)
+    results = {"morphorepr": {**point, **ci}, "comparisons": {}, "baseline_scores": {}}
 
-    if config.get("causal_scoring", {}).get("run_baseline_comparisons", False):
-        for base in config["stats"].get("superiority_vs", []) + config["stats"].get("non_inferiority_vs", []):
-            d = paired_diff_bootstrap(
-                mr, _load_pairs(run_id, base, config=config, model_run_id=model_run_id, split=split),
-                config["stats"].get("bootstrap_resamples", 10000), config.get("seed", 42))
-            mode = "non_inferiority" if base in config["stats"].get("non_inferiority_vs", []) else "superiority"
+    # (metric_name, value, ci_low, ci_high, n_samples, baseline) — model_run_id renseigné partout
+    metric_rows = [("causal_macro_f1_global", point["macro_f1"], ci["ci_low"], ci["ci_high"],
+                    point["n_pairs"], None)]
+
+    cs_cfg = config.get("causal_scoring", {})
+    if cs_cfg.get("run_baseline_comparisons", False):
+        strict  = cs_cfg.get("strict_baselines", True)
+        targets = config["stats"].get("superiority_vs", []) + config["stats"].get("non_inferiority_vs", [])
+        for base in targets:
+            try:
+                assert_baseline_predictions_ready(run_id, model_run_id, [base], split)
+            except (RuntimeError, NotImplementedError) as e:
+                if strict:
+                    raise
+                logger.warning(f"Baseline '{base}' IGNORÉE (non prête) : {e} — AUCUN verdict produit.")
+                continue
+            base_pairs = _load_pairs(run_id, base, config=config, model_run_id=model_run_id, split=split)
+            base_point = compute_global_macro_f1(base_pairs)
+            results["baseline_scores"][base] = base_point
+            metric_rows.append(("causal_macro_f1_global", base_point["macro_f1"], None, None,
+                                base_point["n_pairs"], base))
+            d = paired_diff_bootstrap(mr, base_pairs, n_boot, seed)
+            mode = ("non_inferiority" if base in config["stats"].get("non_inferiority_vs", [])
+                    else "superiority")
             d["verdict"] = (("pass" if d["ci_low"] > -nim else "fail") if mode == "non_inferiority"
                             else ("pass" if d["ci_low"] > 0 else "fail"))
+            d["coverage"] = {"morphorepr_pairs": point["n_pairs"], "baseline_pairs": base_point["n_pairs"],
+                             "n_shared_features": d["n_shared_features"]}
             results["comparisons"][base] = {"mode": mode, **d}
+            metric_rows.append(("causal_macro_f1_paired_diff", d["diff"], d["ci_low"], d["ci_high"],
+                                d["n_shared_features"], base))
+            logger.info(f"Comparaison vs {base} ({mode}) : diff={d['diff']} "
+                        f"IC95=[{d['ci_low']},{d['ci_high']}] verdict={d['verdict']} "
+                        f"(features partagées={d['n_shared_features']})")
     else:
         logger.warning(
-            "Comparaisons baselines IGNORÉES (Option A v6.7.0 : prédictions baselines non "
-            "branchées ; causal_scoring.run_baseline_comparisons=false). AUCUN verdict de "
-            "supériorité/non-infériorité n'est produit ; seul causal_macro_f1_global (MorphoRepr) "
-            "est écrit."
+            "Comparaisons baselines IGNORÉES (causal_scoring.run_baseline_comparisons=false). "
+            "AUCUN verdict de supériorité/non-infériorité ; seul causal_macro_f1_global "
+            "(MorphoRepr) est écrit."
         )
 
     with get_conn() as conn:
-        conn.execute("""INSERT INTO metrics (metric_id, run_id, model_run_id, phase, split,
-                        metric_name, value, ci_low, ci_high, n_samples, baseline, computed_at)
-                        VALUES (?, ?, ?, 'p4_score', ?, 'causal_macro_f1_global',
-                                ?, ?, ?, ?, NULL, ?)""",
-                     (str(uuid4()), run_id, model_run_id, split, point["macro_f1"],
-                      ci["ci_low"], ci["ci_high"], point["n_pairs"], datetime.utcnow().isoformat()))
-        for base, d in results["comparisons"].items():
+        for name, value, lo, hi, n, base in metric_rows:
             conn.execute("""INSERT INTO metrics (metric_id, run_id, model_run_id, phase, split,
                             metric_name, value, ci_low, ci_high, n_samples, baseline, computed_at)
-                            VALUES (?, ?, ?, 'p4_score', ?, 'causal_macro_f1_paired_diff',
-                                    ?, ?, ?, ?, ?, ?)""",
-                         (str(uuid4()), run_id, model_run_id, split, d["diff"], d["ci_low"],
-                          d["ci_high"], d["n_shared_features"], base, datetime.utcnow().isoformat()))
+                            VALUES (?, ?, ?, 'p4_score', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (str(uuid4()), run_id, model_run_id, split, name, value, lo, hi, n, base,
+                          datetime.utcnow().isoformat()))
     logger.info(f"Score causal global (split={split}, model_run_id={model_run_id}) : "
                 f"macro-F1={point['macro_f1']} IC95={ci}")
     return results
+```
+
+---
+
+## 8 bis. Prédicteurs de baselines (Option B) — `agents/baseline_predictor.py`
+
+Pour rendre les comparaisons primaires exécutables (supériorité vs `nl_labels`, non-infériorité vs `semantic_regex`), il faut des **prédictions baselines** au même format que MorphoRepr, lues par `causal_scorer._load_pairs(run_id, base, …)` via les `agent_name` de `ACCEPTED_PREDICTOR_AGENTS`. Ce module produit ces `agent_outputs` à partir des **annotations baselines** déjà stockées dans la table `baselines`, en passant par le **provider primaire** (Règle 11) et des **prompts séparés** (aucune terminologie MorphoRepr). Le steering n'est **pas** refait : seul le chemin de *prédiction* diffère entre méthodes — c'est ce qui autorise la comparaison appariée.
+
+```python
+# agents/baseline_predictor.py
+"""
+Prédicteur de directions pour les BASELINES (Option B, v6.8.0).
+
+Produit, pour chaque baseline et chaque feature, un agent_output de prédiction au MÊME format
+canonique que MorphoRepr (accepté par causal_scorer._extract_predicted_directions), avec
+l'agent_name attendu par causal_scorer.ACCEPTED_PREDICTOR_AGENTS. Principes :
+ - on NE FABRIQUE PAS de prédictions : on dépend du ModelProvider primaire (Règle 11) ;
+ - on lit les annotations baselines dans la table `baselines` (annotation_run1 pour le primaire ;
+   annotation_run2 = stabilité secondaire, JAMAIS mélangée) ;
+ - on n'inscrit que des directions ROBUSTES valides (INCREASE/DECREASE/NO_CHANGE) ; une réponse
+   non parsable ou sans direction robuste valide → status='error' (pas de NO_CHANGE silencieux) ;
+ - on NE traduit PAS une baseline en MorphoRepr (prompts séparés, terminologie propre) ;
+ - on NE refait PAS le steering : seul le chemin de PRÉDICTION diffère entre méthodes.
+Seules nl_labels et semantic_regex sont branchées en v6.8.0 ; keyword_tags et morphorepr_shuffled
+restent non branchées (NotImplementedError explicite).
+"""
+import json
+import logging
+
+from utils.db_utils import get_conn, save_agent_output, ensure_legacy_model_run
+from utils.prompt_utils import load_prompt
+
+logger = logging.getLogger(__name__)
+
+ROBUST_PROPERTIES = ["negation_presence", "tense", "code_presence", "conditional_modality"]
+DIRECTIONS = {"INCREASE", "DECREASE", "NO_CHANGE"}
+
+# baseline → (agent_name attendu par causal_scorer, chemin de prompt par défaut)
+BASELINE_AGENTS = {
+    "nl_labels":      ("predictor_nl_labels",      "prompts/predictor_nl_labels_v1.txt"),
+    "semantic_regex": ("predictor_semantic_regex", "prompts/predictor_semantic_regex_v1.txt"),
+}
+# Non branchées en v6.8.0 (contrôle nul / format non stabilisé) — erreur/skip documentés.
+_UNSUPPORTED = {"keyword_tags", "morphorepr_shuffled"}
+
+_DIRECTION_ALIASES = {
+    "increase": "INCREASE", "up": "INCREASE", "more": "INCREASE", "INCREASE": "INCREASE",
+    "decrease": "DECREASE", "down": "DECREASE", "less": "DECREASE", "DECREASE": "DECREASE",
+    "no_change": "NO_CHANGE", "unchanged": "NO_CHANGE", "none": "NO_CHANGE", "NO_CHANGE": "NO_CHANGE",
+}
+
+
+def _normalize_direction(value):
+    """INCREASE/DECREASE/NO_CHANGE ou None (ambigu) — jamais NO_CHANGE par défaut silencieux."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    return (_DIRECTION_ALIASES.get(v) or _DIRECTION_ALIASES.get(v.lower())) if v else None
+
+
+def _prompt_path(method, config):
+    key = {"nl_labels": "predictor_nl_labels", "semantic_regex": "predictor_semantic_regex"}[method]
+    return config.get("prompts", {}).get(key, BASELINE_AGENTS[method][1])
+
+
+def _load_baseline_annotations(run_id, model_run_id, method, split, which="annotation_run1"):
+    """Annotations baselines pour une méthode, model-aware + split-aware (jointure features).
+    `which` ∈ {annotation_run1 (primaire), annotation_run2 (stabilité secondaire)} — pas de mélange."""
+    if which not in ("annotation_run1", "annotation_run2"):
+        raise ValueError(f"_load_baseline_annotations : champ inattendu {which!r}.")
+    with get_conn() as conn:
+        rows = conn.execute(f"""
+            SELECT b.feature_uid, b.feature_index, b.{which} AS annotation,
+                   f.nl_description, f.top_examples
+            FROM baselines b JOIN features f ON f.feature_uid = b.feature_uid
+            WHERE b.run_id=? AND b.model_run_id=? AND b.baseline_name=? AND f.split=?
+        """, (run_id, model_run_id, method, split)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["top_examples"] = json.loads(d["top_examples"]) if d["top_examples"] else []
+        except (TypeError, json.JSONDecodeError):
+            d["top_examples"] = []
+        out.append(d)
+    return out
+
+
+def _build_user_content(method, annot):
+    """Contenu utilisateur SPÉCIFIQUE à la baseline (aucune terminologie MorphoRepr)."""
+    examples = annot.get("top_examples") or []
+    ex_block = "\n".join(f"- {str(e)[:200]}" for e in examples[:5]) or "(none provided)"
+    if method == "nl_labels":
+        return ("Natural-language label describing the feature:\n"
+                f"{annot['annotation']}\n\n"
+                f"Top-activating examples:\n{ex_block}\n\n"
+                "Predict the expected behavioural effects under steering of THIS feature.")
+    if method == "semantic_regex":
+        desc = annot.get("nl_description") or "(no description)"
+        return ("Semantic Regex annotation of the feature:\n"
+                f"{annot['annotation']}\n\n"
+                f"Optional description:\n{desc}\n\n"
+                "Use only the regex structure to predict observable property effects under steering.")
+    raise NotImplementedError(f"_build_user_content : méthode non branchée {method!r}.")
+
+
+def _parse_prediction_response(raw, method):
+    """Parse la réponse du modèle en output_json canonique ou None. N'inclut que des propriétés
+    ROBUSTES avec direction valide. Aucune conversion silencieuse d'une direction ambiguë."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        i, j = text.find("{"), text.rfind("}")
+        if i == -1 or j == -1 or j <= i:
+            return None
+        try:
+            obj = json.loads(text[i:j + 1])
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(obj, dict):
+        return None
+    raw_preds = obj.get("predictions")
+    items = raw_preds if isinstance(raw_preds, list) else []
+    if not items and isinstance(obj.get("properties"), dict):     # tolérance format dict
+        items = [{"property": k, "direction": (v.get("direction") if isinstance(v, dict) else v)}
+                 for k, v in obj["properties"].items()]
+    preds = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        prop = it.get("property")
+        direction = _normalize_direction(it.get("direction"))
+        if prop in ROBUST_PROPERTIES and direction in DIRECTIONS:
+            entry = {"property": prop, "direction": direction}
+            if isinstance(it.get("confidence"), (int, float)):
+                entry["confidence"] = it["confidence"]
+            if it.get("rationale"):
+                entry["rationale"] = str(it["rationale"])[:280]
+            preds.append(entry)
+    if not preds:
+        return None
+    return {"status": "ok", "method": method, "predictions": preds}
+
+
+def _build_primary_provider(config):
+    """Seam monkeypatchable : construit le ModelProvider PRIMAIRE (Tier A/B, Règle 11)."""
+    from utils.model_provider import build_provider
+    return build_provider(config["model_providers"]["primary_reproducible"])
+
+
+def _predict_directions(provider, system_prompt, annot, method, config):
+    """Appelle le provider primaire et parse la réponse. Renvoie (output_json|None, raw)."""
+    gp = (config.get("model_providers", {}).get("primary_reproducible", {})
+          .get("generation_params", {}))
+    max_tokens = config.get("baseline_predictions", {}).get("max_tokens", 512)
+    raw = provider.generate([{"role": "user", "content": _build_user_content(method, annot)}],
+                            system_prompt, max_tokens, gp)
+    return _parse_prediction_response(raw, method), raw
+
+
+def run(run_id: str, config: dict):
+    """Produit les agent_outputs de prédiction baselines (Option B). NE FABRIQUE rien : une
+    réponse invalide est persistée status='error' (jamais convertie en NO_CHANGE). NE refait PAS
+    le steering. Strictement model-aware et split-aware."""
+    bp = config.get("baseline_predictions", {})
+    run_number    = bp.get("run_number", 1)
+    require_annot = bp.get("require_existing_baseline_annotations", True)
+    skip_missing  = bp.get("skip_missing_annotations", False)
+    split = config.get("primary_split", "random")
+    model_run_id = (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+                    or ensure_legacy_model_run(run_id))
+
+    provider = _build_primary_provider(config)
+    summary = {}
+    for method in bp.get("methods", []):
+        if method in _UNSUPPORTED:
+            raise NotImplementedError(
+                f"baseline_predictor : '{method}' n'est pas branché en v6.8.0 (contrôle nul / "
+                f"format non stabilisé). Retirer de baseline_predictions.methods ou l'implémenter.")
+        if method not in BASELINE_AGENTS:
+            raise NotImplementedError(f"baseline_predictor : méthode inconnue {method!r}.")
+        agent_name, _default_prompt = BASELINE_AGENTS[method]
+        system_prompt = load_prompt(_prompt_path(method, config))
+        annots = _load_baseline_annotations(run_id, model_run_id, method, split, "annotation_run1")
+        if not annots:
+            msg = (f"No baseline annotations found for method={method}, run_id={run_id}, "
+                   f"model_run_id={model_run_id}, split={split}.")
+            if require_annot:
+                raise RuntimeError(msg + " (require_existing_baseline_annotations=true)")
+            logger.warning(msg + " — méthode ignorée."); continue
+
+        n_ok = n_err = n_skip = 0
+        for a in annots:
+            if not a.get("annotation"):
+                if skip_missing:
+                    n_skip += 1; continue
+                if require_annot:
+                    raise RuntimeError(
+                        f"Annotation baseline vide pour feature_uid={a['feature_uid']} "
+                        f"(method={method}). (require_existing_baseline_annotations=true)")
+            output_json, raw = _predict_directions(provider, system_prompt, a, method, config)
+            status = "ok" if (output_json and output_json.get("predictions")) else "error"
+            save_agent_output(
+                run_id, a["feature_index"], agent_name, run_number,
+                output_json if status == "ok" else None, raw if isinstance(raw, str) else "",
+                status, None if status == "ok" else "no valid robust direction parsed",
+                0, 0, None, 0.0, feature_uid=a["feature_uid"], model_run_id=model_run_id)
+            n_ok += status == "ok"; n_err += status == "error"
+        summary[method] = {"annotations": len(annots), "ok": n_ok, "error": n_err, "skipped": n_skip}
+        logger.info(f"baseline_predictor[{method}] : {n_ok} ok, {n_err} error, {n_skip} skip "
+                    f"(agent_name={agent_name}, model_run_id={model_run_id}, split={split}).")
+    return summary
+```
+
+### Prompts séparés (terminologie propre à chaque baseline)
+
+`prompts/predictor_nl_labels_v1.txt` — entrée = label naturel (+ exemples), sortie = directions robustes, **sans** demander d'annotation MorphoRepr :
+
+```text
+You are predicting the behavioural effect of steering (amplifying) a single sparse-autoencoder
+feature inside a language model. You are given ONLY a natural-language label for that feature and,
+optionally, a few top-activating text examples.
+
+Your task: predict, for each of the four ROBUST behavioural properties below, the direction in
+which the property will change in the model's output when this feature is steered UP (positive
+magnitude) on neutral prompts, relative to the unsteered output.
+
+Robust properties (predict ALL four):
+- negation_presence: presence/quantity of explicit negation (no, not, never, ...).
+- tense: shift toward past vs non-past tense.
+- code_presence: presence of source-code / programming syntax.
+- conditional_modality: presence of conditional/hypothetical modality (if, would, could, ...).
+
+Allowed directions (exactly one per property):
+- INCREASE  - the property becomes more present / stronger.
+- DECREASE  - the property becomes less present / weaker.
+- NO_CHANGE - no reliable change expected.
+
+Rules:
+- Base your prediction ONLY on the natural-language label (and examples if given). Do NOT invent a
+  MorphoRepr expression and do NOT use any controlled-language formalism.
+- If a property is genuinely unrelated to the label, predict NO_CHANGE - but never output UNKNOWN
+  and never leave a property out.
+- Output STRICT JSON only, no prose around it, in exactly this schema:
+
+{
+  "status": "ok",
+  "method": "nl_labels",
+  "predictions": [
+    {"property": "negation_presence", "direction": "INCREASE", "confidence": 0.0, "rationale": "..."},
+    {"property": "tense", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "code_presence", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "conditional_modality", "direction": "NO_CHANGE", "confidence": 0.0}
+  ]
+}
+
+confidence is a number in [0,1]; rationale is optional and short.
+```
+
+`prompts/predictor_semantic_regex_v1.txt` — entrée = Semantic Regex (+ description), sortie = directions robustes, **sans** traduction en MorphoRepr :
+
+```text
+You are predicting the behavioural effect of steering (amplifying) a single sparse-autoencoder
+feature inside a language model. You are given ONLY a Semantic Regex annotation of that feature
+(in the Boggust et al. formalism) and, optionally, a short natural-language description.
+
+Your task: predict, for each of the four ROBUST behavioural properties below, the direction in
+which the property will change in the model's output when this feature is steered UP (positive
+magnitude) on neutral prompts, relative to the unsteered output.
+
+Robust properties (predict ALL four):
+- negation_presence: presence/quantity of explicit negation (no, not, never, ...).
+- tense: shift toward past vs non-past tense.
+- code_presence: presence of source-code / programming syntax.
+- conditional_modality: presence of conditional/hypothetical modality (if, would, could, ...).
+
+Allowed directions (exactly one per property): INCREASE / DECREASE / NO_CHANGE.
+
+Rules:
+- Use ONLY the structure and tokens of the Semantic Regex to infer which observable properties the
+  feature governs. Do NOT translate the regex into MorphoRepr or any other controlled language.
+- If the regex says nothing about a property, predict NO_CHANGE - never output UNKNOWN and never
+  omit a property.
+- Output STRICT JSON only, no prose around it, in exactly this schema:
+
+{
+  "status": "ok",
+  "method": "semantic_regex",
+  "predictions": [
+    {"property": "negation_presence", "direction": "INCREASE", "confidence": 0.0, "rationale": "..."},
+    {"property": "tense", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "code_presence", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "conditional_modality", "direction": "NO_CHANGE", "confidence": 0.0}
+  ]
+}
+
+confidence is a number in [0,1]; rationale is optional and short.
 ```
 
 ---
@@ -4453,7 +4834,7 @@ def test_load_pairs_assembles_pair(test_db, monkeypatch):
             and p["property"] == "negation_presence" and p["method"] == "morphorepr")
 
 
-# 12-13. run() minimal : métrique écrite avec model_run_id ; baselines skipped (Option A)
+# 12-13. run() minimal : métrique écrite avec model_run_id ; baselines non comparées (run_baseline_comparisons=false)
 def test_run_minimal_writes_metric_and_skips_baselines(test_db, monkeypatch):
     conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
     for i in (1, 2, 3):
@@ -4467,7 +4848,7 @@ def test_run_minimal_writes_metric_and_skips_baselines(test_db, monkeypatch):
     cfg["_runtime"] = {"model_run_ids": {"primary": "mrP"}}        # run() lit le primaire
     res = causal_run("r1", cfg)
     assert res["morphorepr"]["macro_f1"] == 1.0                    # toutes prédictions == observations
-    assert res["comparisons"] == {}                                # Option A : baselines skipped
+    assert res["comparisons"] == {}                                # run_baseline_comparisons=false : aucune comparaison
     conn = _sqlite3.connect(test_db)
     row = conn.execute("""SELECT model_run_id, split FROM metrics
                           WHERE metric_name='causal_macro_f1_global'""").fetchone()
@@ -4476,6 +4857,281 @@ def test_run_minimal_writes_metric_and_skips_baselines(test_db, monkeypatch):
     conn.close()
     assert row[0] == "mrP" and row[1] == "random"                  # metrics.model_run_id renseigné
     assert n_diff == 0                                             # aucun verdict baseline (pas de faux pass/fail)
+```
+
+```python
+# ─────────────────────────────────────────────
+# tests/test_baseline_predictions.py  (v6.8.0 — prédictions baselines Option B)
+# nl_labels (supériorité) et semantic_regex (non-infériorité). Tout est déterministe : le provider
+# primaire et/ou la prédiction sont monkeypatchés, et les classifieurs via cs.CLASSIFIER_BY_PROPERTY.
+# ─────────────────────────────────────────────
+import json as _json
+import sqlite3 as _sqlite3
+import pytest as _pytest
+import agents.baseline_predictor as bp
+import agents.causal_scorer as cs
+from agents.baseline_predictor import (run as bp_run, _parse_prediction_response,
+                                       _load_baseline_annotations)
+from agents.causal_scorer import (_load_pairs, run as causal_run,
+                                  assert_baseline_predictions_ready, _extract_predicted_directions)
+
+_CFG_BP = {
+    "primary_split": "random",
+    "prompts": {"predictor_nl_labels": "prompts/predictor_nl_labels_v1.txt",
+                "predictor_semantic_regex": "prompts/predictor_semantic_regex_v1.txt"},
+    "model_providers": {"primary_reproducible": {"backend": "vllm", "model_name": "m",
+                                                 "generation_params": {"temperature": 0.0}}},
+    "baseline_predictions": {"enabled": True, "methods": ["nl_labels", "semantic_regex"],
+                             "run_number": 1, "require_existing_baseline_annotations": True,
+                             "skip_missing_annotations": False},
+    "steering": {"magnitude_mode": "p99_relative", "primary_magnitude_rel": 1.0,
+                 "primary_probe_family": "neutral", "exclude_ood_from_primary": True,
+                 "intervention_space": "residual_add_decoder"},
+    "stats": {"bootstrap_resamples": 50, "superiority_vs": ["nl_labels"],
+              "non_inferiority_vs": ["semantic_regex"]},
+    "thresholds": {"nim_delta": 0.05},
+    "causal_scoring": {"run_baseline_comparisons": True, "strict_baselines": True},
+    "seed": 42,
+    "_runtime": {"model_run_ids": {"primary": "mrP"}},
+}
+
+
+class _FakeProvider:
+    """Provider déterministe : renvoie un JSON canonique (négation INCREASE, reste NO_CHANGE)."""
+    def __init__(self, direction="INCREASE"): self.direction = direction
+    def generate(self, messages, system_prompt, max_tokens, generation_params):
+        return _json.dumps({"status": "ok", "method": "x", "predictions": [
+            {"property": "negation_presence", "direction": self.direction, "confidence": 0.8},
+            {"property": "tense", "direction": "NO_CHANGE", "confidence": 0.5},
+            {"property": "code_presence", "direction": "NO_CHANGE", "confidence": 0.5},
+            {"property": "conditional_modality", "direction": "NO_CHANGE", "confidence": 0.5}]})
+
+
+def _mk_run(conn, run_id="r1"):
+    conn.execute("""INSERT INTO runs (run_id,git_commit,config_hash,prompt_hashes,lexicon_version,
+        lexicon_hash,corpus_hash,models_json,use_temperature,temperature,seed,proxy_model,started_at,
+        completed_at,status,last_phase,total_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (run_id, 'c', 'h', '{}', 'v1', 'lh', 'ch', '{}', 0, None, 42, None, '2026-01-01', None,
+         'running', None, 0.0))
+
+
+def _mk_model_run(conn, run_id, mrid, name="primary", tier="B_open_weight"):
+    conn.execute("""INSERT INTO model_runs (model_run_id, run_id, provider_name, provider_tier,
+        backend, model_name, generation_params_json, created_at)
+        VALUES (?,?,?,?,?,?,'{}','2026-01-01')""", (mrid, run_id, "p", tier, "vllm", name))
+
+
+def _mk_feature(conn, idx, split="random"):
+    uid = f"gpt2:res-jb:6:hook_resid_post:{idx}"
+    conn.execute("""INSERT INTO features (feature_uid,model_name,sae_release,layer_index,hook_name,
+        feature_index,split,nl_description,top_examples,score_interp,activation_freq,activation_p99,
+        activation_mean,activation_std,layer,neuronpedia_url,loaded_at) VALUES
+        (?, 'gpt2','res-jb',6,'hook_resid_post',?,?,'a feature about negation','[]',0.8,0.5,2.0,0.8,0.4,'6','x','2026-01-01')""",
+        (uid, idx, split))
+    return uid
+
+
+def _mk_baseline(conn, run_id, mrid, uid, idx, name, annot="negation label"):
+    conn.execute("""INSERT INTO baselines (baseline_id,run_id,model_run_id,feature_uid,feature_index,
+        baseline_name,annotation_run1,created_at) VALUES (?,?,?,?,?,?,?,'2026-01-01')""",
+        (f"b-{mrid}-{idx}-{name}", run_id, mrid, uid, idx, name, annot))
+
+
+def _mk_prediction(conn, run_id, mrid, uid, idx, props, agent):
+    conn.execute("""INSERT INTO agent_outputs (output_id,run_id,model_run_id,feature_uid,feature_index,
+        agent_name,run_number,output_json,raw_output,status,error_msg,tokens_input,tokens_output,
+        batch_id,cost_usd,coefficient_type,created_at) VALUES
+        (?,?,?,?,?,?,1,?,?,'ok',NULL,1,1,NULL,0.0,'confidence','2026-01-01')""",
+        (f"p-{mrid}-{idx}-{agent}", run_id, mrid, uid, idx, agent,
+         _json.dumps({"status": "ok", "method": agent, "predictions":
+                      [{"property": k, "direction": v} for k, v in props.items()]}), "raw"))
+
+
+def _mk_steer(conn, run_id, mrid, uid, idx, before="a", after="b"):
+    conn.execute("""INSERT INTO steering_results (result_id,run_id,model_run_id,feature_uid,
+        feature_index,intervention_space,magnitude,magnitude_rel,magnitude_key,probe_id,probe_family,
+        probe_category,generation_index,text_before,text_after,layer,token_position,activation_before,
+        activation_after,achieved_delta,ood_flag,created_at) VALUES
+        (?,?,?,?,?, 'residual_add_decoder', 2.0, 1.0, 'rel:1.0', ?, 'neutral', NULL, 0, ?, ?,
+         '6','all',1.0,2.0,1.0,0,'2026-01-01')""",
+        (f"s-{mrid}-{idx}", run_id, mrid, uid, idx, idx, before, after))
+
+
+# 1. Chargement des annotations baselines (model/split-aware)
+def test_load_baseline_annotations(test_db):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    u = _mk_feature(conn, 1, "random")
+    _mk_baseline(conn, "r1", "mrP", u, 1, "nl_labels", "a negation label")
+    _mk_baseline(conn, "r1", "mrP", u, 1, "semantic_regex", "/(no|not)/")
+    conn.commit(); conn.close()
+    nl = _load_baseline_annotations("r1", "mrP", "nl_labels", "random")
+    sr = _load_baseline_annotations("r1", "mrP", "semantic_regex", "random")
+    assert len(nl) == 1 and nl[0]["annotation"] == "a negation label"
+    assert len(sr) == 1 and sr[0]["annotation"] == "/(no|not)/"
+
+
+# 2-3. Sauvegarde prédiction nl_labels + format accepté par _extract_predicted_directions
+def test_bp_saves_nl_prediction_canonical(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    u = _mk_feature(conn, 1, "random"); _mk_baseline(conn, "r1", "mrP", u, 1, "nl_labels")
+    conn.commit(); conn.close()
+    monkeypatch.setattr(bp, "_build_primary_provider", lambda cfg: _FakeProvider("INCREASE"))
+    monkeypatch.setattr(bp, "load_prompt", lambda p: "SYS")          # pas de fichier en test
+    cfg = _json.loads(_json.dumps(_CFG_BP)); cfg["baseline_predictions"]["methods"] = ["nl_labels"]
+    summary = bp_run("r1", cfg)
+    assert summary["nl_labels"]["ok"] == 1 and summary["nl_labels"]["error"] == 0
+    conn = _sqlite3.connect(test_db); conn.row_factory = _sqlite3.Row
+    row = conn.execute("""SELECT agent_name, model_run_id, feature_uid, status, output_json
+                          FROM agent_outputs WHERE agent_name='predictor_nl_labels'""").fetchone()
+    conn.close()
+    assert row["agent_name"] == "predictor_nl_labels" and row["model_run_id"] == "mrP"
+    assert row["feature_uid"] == u and row["status"] == "ok"
+    dirs = _extract_predicted_directions(row["output_json"])        # format canonique accepté
+    assert dirs["negation_presence"] == "INCREASE"
+
+
+# 4. Sauvegarde prédiction semantic_regex
+def test_bp_saves_semantic_regex_prediction(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    u = _mk_feature(conn, 1, "random"); _mk_baseline(conn, "r1", "mrP", u, 1, "semantic_regex", "/(no|not)/")
+    conn.commit(); conn.close()
+    monkeypatch.setattr(bp, "_build_primary_provider", lambda cfg: _FakeProvider("INCREASE"))
+    monkeypatch.setattr(bp, "load_prompt", lambda p: "SYS")
+    cfg = _json.loads(_json.dumps(_CFG_BP)); cfg["baseline_predictions"]["methods"] = ["semantic_regex"]
+    bp_run("r1", cfg)
+    conn = _sqlite3.connect(test_db)
+    n = conn.execute("""SELECT COUNT(*) FROM agent_outputs
+                        WHERE agent_name='predictor_semantic_regex' AND status='ok'""").fetchone()[0]
+    conn.close()
+    assert n == 1
+
+
+# 5. Absence d'annotation + require_existing_baseline_annotations=true → RuntimeError (pas de prédiction factice)
+def test_bp_missing_annotations_raises(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    _mk_feature(conn, 1, "random"); conn.commit(); conn.close()      # AUCUNE ligne baselines
+    monkeypatch.setattr(bp, "_build_primary_provider", lambda cfg: _FakeProvider())
+    monkeypatch.setattr(bp, "load_prompt", lambda p: "SYS")
+    cfg = _json.loads(_json.dumps(_CFG_BP)); cfg["baseline_predictions"]["methods"] = ["nl_labels"]
+    with _pytest.raises(RuntimeError, match="No baseline annotations"):
+        bp_run("r1", cfg)
+    conn = _sqlite3.connect(test_db)
+    assert conn.execute("SELECT COUNT(*) FROM agent_outputs").fetchone()[0] == 0   # rien de fabriqué
+    conn.close()
+
+
+# 6. assert_baseline_predictions_ready : passe si prédictions présentes, échoue sinon
+def test_assert_baseline_predictions_ready(test_db):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    u = _mk_feature(conn, 1, "random"); _mk_baseline(conn, "r1", "mrP", u, 1, "nl_labels")
+    conn.commit()
+    with _pytest.raises(RuntimeError, match="non prête"):            # pas encore de prédiction
+        assert_baseline_predictions_ready("r1", "mrP", ["nl_labels"], "random")
+    _mk_prediction(conn, "r1", "mrP", u, 1, {"negation_presence": "INCREASE"}, "predictor_nl_labels")
+    conn.commit(); conn.close()
+    assert_baseline_predictions_ready("r1", "mrP", ["nl_labels"], "random")   # passe désormais
+
+
+# 7-8. _load_pairs sur les baselines
+def test_load_pairs_nl_and_semantic(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    u = _mk_feature(conn, 1, "random")
+    _mk_prediction(conn, "r1", "mrP", u, 1, {"negation_presence": "INCREASE"}, "predictor_nl_labels")
+    _mk_prediction(conn, "r1", "mrP", u, 1, {"negation_presence": "INCREASE"}, "predictor_semantic_regex")
+    _mk_steer(conn, "r1", "mrP", u, 1); conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    for method in ("nl_labels", "semantic_regex"):
+        pairs = _load_pairs("r1", method, config=_CFG_BP, model_run_id="mrP", split="random")
+        assert len(pairs) == 1 and pairs[0]["predicted"] == "INCREASE" and pairs[0]["method"] == method
+
+
+# 9. run() avec comparaisons activées : scores + paired diff + verdicts
+def test_run_with_baseline_comparisons(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    for i in (1, 2, 3):
+        u = _mk_feature(conn, i, "random")
+        _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "INCREASE"}, "predictor")               # MorphoRepr
+        _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "DECREASE"}, "predictor_nl_labels")     # NL (faux)
+        _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "INCREASE"}, "predictor_semantic_regex")# SemReg (vrai)
+        _mk_steer(conn, "r1", "mrP", u, i)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    res = causal_run("r1", _json.loads(_json.dumps(_CFG_BP)))
+    assert res["morphorepr"]["macro_f1"] == 1.0
+    assert res["baseline_scores"]["nl_labels"]["macro_f1"] == 0.0          # NL tout faux
+    assert res["baseline_scores"]["semantic_regex"]["macro_f1"] == 1.0     # SemReg tout vrai
+    assert res["comparisons"]["nl_labels"]["mode"] == "superiority" and res["comparisons"]["nl_labels"]["verdict"] == "pass"
+    assert res["comparisons"]["semantic_regex"]["mode"] == "non_inferiority" and res["comparisons"]["semantic_regex"]["verdict"] == "pass"
+    assert res["comparisons"]["nl_labels"]["coverage"]["n_shared_features"] == 3
+    conn = _sqlite3.connect(test_db)
+    n_global = conn.execute("SELECT COUNT(*) FROM metrics WHERE metric_name='causal_macro_f1_global'").fetchone()[0]
+    n_diff = conn.execute("SELECT COUNT(*) FROM metrics WHERE metric_name='causal_macro_f1_paired_diff'").fetchone()[0]
+    null_mrid = conn.execute("SELECT COUNT(*) FROM metrics WHERE model_run_id IS NULL").fetchone()[0]
+    conn.close()
+    assert n_global == 3 and n_diff == 2 and null_mrid == 0   # MorphoRepr + 2 baselines ; 2 paired diff ; jamais NULL
+
+
+# 10. Baseline absente + comparaisons activées : strict raise / non-strict skip SANS verdict
+def test_run_missing_baseline_no_false_verdict(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    for i in (1, 2, 3):
+        u = _mk_feature(conn, i, "random")
+        _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "INCREASE"}, "predictor")
+        _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "INCREASE"}, "predictor_semantic_regex")
+        _mk_steer(conn, "r1", "mrP", u, i)                       # NL ABSENT
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    strict = _json.loads(_json.dumps(_CFG_BP))                  # strict_baselines=true
+    with _pytest.raises(RuntimeError, match="non prête"):
+        causal_run("r1", strict)
+    lax = _json.loads(_json.dumps(_CFG_BP)); lax["causal_scoring"]["strict_baselines"] = False
+    res = causal_run("r1", lax)
+    assert "nl_labels" not in res["comparisons"]                # skip sans verdict
+    assert res["comparisons"]["semantic_regex"]["verdict"] in ("pass", "fail")
+
+
+# 11. model-aware : le primaire ne charge pas les prédictions baselines du secondaire
+def test_baseline_load_pairs_model_aware(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn)
+    _mk_model_run(conn, "r1", "mrP", "primary"); _mk_model_run(conn, "r1", "mrS", "sec", "C_proprietary_api")
+    u = _mk_feature(conn, 1, "random")
+    _mk_prediction(conn, "r1", "mrP", u, 1, {"negation_presence": "INCREASE"}, "predictor_nl_labels")
+    _mk_prediction(conn, "r1", "mrS", u, 1, {"negation_presence": "DECREASE"}, "predictor_nl_labels")
+    _mk_steer(conn, "r1", "mrP", u, 1); _mk_steer(conn, "r1", "mrS", u, 1)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    pairs = _load_pairs("r1", "nl_labels", config=_CFG_BP, model_run_id="mrP", split="random")
+    assert len(pairs) == 1 and pairs[0]["predicted"] == "INCREASE"   # jamais la prédiction DECREASE du secondaire
+
+
+# 12. split-aware : split=random ne charge que random
+def test_baseline_load_pairs_split_aware(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    ur = _mk_feature(conn, 1, "random"); ue = _mk_feature(conn, 2, "easy")
+    for u, i in ((ur, 1), (ue, 2)):
+        _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "INCREASE"}, "predictor_nl_labels")
+        _mk_steer(conn, "r1", "mrP", u, i)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    pairs = _load_pairs("r1", "nl_labels", config=_CFG_BP, model_run_id="mrP", split="random")
+    assert {p["feature_uid"] for p in pairs} == {ur}
+
+
+# 13. couverture : comparaison appariée sur features partagées uniquement
+def test_baseline_coverage_shared_features(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    for i in (1, 2, 3):                                          # MorphoRepr sur 3 features
+        u = _mk_feature(conn, i, "random")
+        _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "INCREASE"}, "predictor")
+        _mk_steer(conn, "r1", "mrP", u, i)
+        if i < 3:                                                # NL seulement sur 2 features
+            _mk_prediction(conn, "r1", "mrP", u, i, {"negation_presence": "INCREASE"}, "predictor_nl_labels")
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    cfg = _json.loads(_json.dumps(_CFG_BP)); cfg["stats"]["non_inferiority_vs"] = []   # NL seul
+    res = causal_run("r1", cfg)
+    cov = res["comparisons"]["nl_labels"]["coverage"]
+    assert cov["morphorepr_pairs"] == 3 and cov["baseline_pairs"] == 2 and cov["n_shared_features"] == 2
 ```
 
 ```python
@@ -5202,7 +5858,7 @@ def test_steer_feature_integration_slow():
 ```python
 # orchestrator.py
 """
-Orchestrateur MorphoRepr v6.7.0 — run gelé et auditable.
+Orchestrateur MorphoRepr v6.8.0 — run gelé et auditable.
 
 Usage :
     python orchestrator.py --config configs/run_v1.yaml
@@ -5239,6 +5895,7 @@ from utils.db_utils import get_conn, check_budget, register_model_run, restore_m
 
 from agents import loader, ranker, cluster, labeler, consistency
 from agents import encoder, fidelity, steerer, predictor, causal_scorer, reporter
+from agents import baseline_predictor          # prédictions baselines Option B (v6.8.0)
 from agents import qualitative_judge          # juge LLM — analyses SECONDAIRES uniquement
 from baselines import shuffled as shuffled_baseline
 
@@ -5481,6 +6138,13 @@ PHASES = [
                           if cfg.get("causal_scoring", {}).get("run_in_pipeline", False)
                           else logger.warning("p4_predict désactivé (causal_scoring.run_in_pipeline=false)")),
                                                                      "Prédiction causale"),
+    # Prédictions BASELINES (Option B, v6.8.0) : gardées par baseline_predictions.enabled (défaut
+    # false, NON auto-activé). Produit predictor_nl_labels / predictor_semantic_regex pour permettre
+    # les comparaisons appariées dans p4_score (run_baseline_comparisons).
+    ("p4_predict_baselines", lambda rid, cfg: (baseline_predictor.run(rid, cfg)
+                          if cfg.get("baseline_predictions", {}).get("enabled", False)
+                          else logger.warning("p4_predict_baselines désactivé (baseline_predictions.enabled=false)")),
+                                                                     "Prédiction baselines (Option B)"),
     # Métrique PRIMAIRE = score déterministe (prédiction vs classifieurs), SANS juge LLM (Règle 8)
     ("p4_score",       lambda rid, cfg: (causal_scorer.run(rid, cfg)
                           if cfg.get("causal_scoring", {}).get("run_in_pipeline", False)
@@ -6007,7 +6671,7 @@ Correctif **final** de propagation multi-modèle. `model_run_id` était présent
 
 **3. `get_unconsumed_batch(model_run_id=None)` résout le legacy.** Comme `batches.model_run_id` est NOT NULL, un filtre `IS NULL` ne pouvait plus rien matcher. La fonction résout désormais `ensure_legacy_model_run(run_id)` quand `model_run_id is None` (et filtre par égalité). Un batch legacy enregistré via `register_batch(..., model_run_id=None)` est de nouveau retrouvable. Test `test_get_unconsumed_batch_legacy_retrouvable`.
 
-**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.7.0 — 500 features"` (résidu v0.28 supprimé).
+**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.8.0 — 500 features"` (résidu v0.28 supprimé).
 
 **5. Reprise : restauration des `model_run_ids`.** Nouvelle fonction `restore_model_run_ids(run_id, config)` qui reconstruit `config['_runtime']['model_run_ids']` depuis la DB (rattachement par `model_name` au rôle déclaré : primary/secondary/replication). Appelée dans la branche `--resume` de l'orchestrateur. `steerer.run` ne retombe donc plus sur un model_run legacy quand un modèle primaire existe déjà en DB. Test `test_resume_restaure_model_run_ids`.
 
@@ -6087,3 +6751,27 @@ Extension fonctionnelle du scoring causal : **implémentation réelle de `causal
 **Tests ajoutés** (`tests/test_causal_scorer.py`) : extraction des trois formats de prédiction + rejet des directions invalides ; `_observe_property_direction` (paires nulles ignorées, direction invalide → `ValueError`) ; `_primary_magnitude_key` (`rel:1.0` / `abs:5`) ; OOD exclu/inclus ; **model-aware** (le primaire ne charge jamais prédiction/observation du secondaire) ; **split-aware** ; absences explicites (no steering / no predictor / méthode inconnue) ; couple final assemblé ; `run()` minimal (macro-F1=1.0, `metrics.model_run_id` renseigné, baselines skippées sans verdict).
 
 **Statut.** `causal_scorer._load_pairs()` est implémenté pour MorphoRepr (**dev run causal minimal** possible). `run_intervention_controls()` reste un **contrat**. `causal_scoring.run_in_pipeline` reste `false` (non activé automatiquement) ; un dev run causal exige un run contrôlé disposant de prédictions et de steering. **Aucun full result scientifique n'est revendiqué** : pas de comparaison baseline par défaut, et la validation causale complète reste à établir. Limites restantes : prédictions baselines non branchées (Option A), `run_intervention_controls()` contractuel, pas d'exécution réelle en CI standard (dev causal opt-in), dépendance au chemin steer_feature proxy open-weight pour produire les observations.
+
+---
+
+## 27. Changelog v6.7.0 → v6.8.0
+
+Prédictions **baselines (Option B)** pour `nl_labels` et `semantic_regex` : les comparaisons primaires prévues par le protocole (supériorité vs NL, non-infériorité vs Semantic Regexes) deviennent **exécutables en dev run contrôlé**. **Aucun changement de schéma.** `_load_pairs()` MorphoRepr (v6.7.0), la couche multi-modèle et `steer_feature()` sont inchangés. Le papier v0.29 et ses claims ne sont pas modifiés. **Aucun full scientific result n'est revendiqué.**
+
+**Nouveau module `agents/baseline_predictor.py`.** `run(run_id, config)` produit, pour chaque baseline activée et chaque feature, un `agent_output` de prédiction de directions au **format canonique** accepté par `causal_scorer._extract_predicted_directions`, avec l'`agent_name` attendu (`predictor_nl_labels`, `predictor_semantic_regex`). Il lit les annotations dans la table `baselines` (`annotation_run1` pour le primaire ; `annotation_run2` réservé à une analyse de stabilité secondaire, **jamais mélangée**), construit le **provider primaire** (`_build_primary_provider`, seam monkeypatchable, Règle 11), appelle `provider.generate(...)` avec un **prompt séparé** par baseline, puis parse la réponse (`_parse_prediction_response`) en ne gardant que les **propriétés robustes** avec direction valide. Une réponse non parsable ou sans direction robuste valide est persistée `status='error'` (jamais convertie en `NO_CHANGE`). Le steering n'est **pas** refait : seul le chemin de prédiction diffère, ce qui garantit une comparaison appariée correcte (mêmes `steering_results`, classifieurs, split, `model_run_id`, `magnitude_key`, filtrage OOD, bootstrap clusterisé).
+
+**Prompts séparés** (aucune terminologie MorphoRepr) : `prompts/predictor_nl_labels_v1.txt` (entrée = label naturel + exemples top-activating ; sortie = directions robustes ; ne demande pas d'annotation MorphoRepr) et `prompts/predictor_semantic_regex_v1.txt` (entrée = Semantic Regex + description ; exploite la structure regex ; ne traduit pas en MorphoRepr). Même schéma JSON strict pour les deux.
+
+**Baselines branchées** : `nl_labels` (supériorité) et `semantic_regex` (non-infériorité). **Non branchées** : `keyword_tags` et `morphorepr_shuffled` (`_UNSUPPORTED` → `NotImplementedError` explicite si demandées ; `morphorepr_shuffled` est un contrôle nul d'annotation, hors priorité des comparaisons principales).
+
+**Config.** Nouvelle section `baseline_predictions` (`enabled:false`, `methods:[nl_labels, semantic_regex]`, `run_number:1`, `require_existing_baseline_annotations:true`, `skip_missing_annotations:false`) et nouveau flag `causal_scoring.strict_baselines` (`true` → baseline demandée mais absente lève `RuntimeError` ; `false` → skip explicite **sans verdict**). Prompts ajoutés à `prompts:`.
+
+**Garde `causal_scorer.assert_baseline_predictions_ready(run_id, model_run_id, methods, split, min_features=1)`** : vérifie la présence d'annotations dans `baselines` ET de prédictions `agent_outputs` (agent_name attendu) pour le **même** `model_run_id` et le **même** split (jointure `features`). Lève `RuntimeError` sinon — **aucun verdict sur une baseline absente**.
+
+**`causal_scorer.run()` (Option B).** Si `run_baseline_comparisons=true` : pour chaque baseline de `superiority_vs + non_inferiority_vs`, readiness d'abord (strict → `RuntimeError` ; sinon skip + log, **jamais** de faux `pass`/`fail`), puis `_load_pairs(base)`, son **propre** `causal_macro_f1_global` (avec `baseline=<nom>`), `paired_diff_bootstrap` apparié, verdict (`superiority` pour NL : IC de la différence > 0 ; `non_inferiority` pour Semantic Regexes : borne basse > −`nim_delta`), et **couverture** (paires MorphoRepr, paires baseline, features partagées). `metrics.model_run_id` est renseigné pour **toutes** ces métriques (jamais `NULL` pour une métrique model-specific). La perte de couverture n'est pas masquée (comparaison appariée sur l'ensemble partagé, couverture rapportée).
+
+**Orchestrateur.** Nouvelle phase `p4_predict_baselines` (avant `p4_score`), gardée par `baseline_predictions.enabled` (défaut `false`, **non auto-activée**) ; `baseline_predictor` importé. `causal_scoring.run_in_pipeline` reste `false`.
+
+**Tests ajoutés** (`tests/test_baseline_predictions.py`, déterministes — provider et/ou prédiction monkeypatchés, classifieurs via `cs.CLASSIFIER_BY_PROPERTY`) : chargement des annotations baselines ; sauvegarde des prédictions `predictor_nl_labels`/`predictor_semantic_regex` (model_run_id, feature_uid, status) ; format JSON accepté par `_extract_predicted_directions` ; absence d'annotation + `require_existing_baseline_annotations=true` → `RuntimeError` (rien de fabriqué) ; `assert_baseline_predictions_ready` (passe/échoue) ; `_load_pairs("nl_labels")` et `_load_pairs("semantic_regex")` ; `run()` avec comparaisons (scores MorphoRepr+NL+SemReg, paired diff, verdicts supériorité/non-infériorité, model_run_id jamais NULL) ; baseline absente → strict raise / non-strict skip sans verdict ; model-aware ; split-aware ; couverture (features partagées uniquement).
+
+**Statut.** `run_baseline_comparisons=true` est désormais possible **en dev run contrôlé** si les prédictions baselines existent. `run_intervention_controls()` reste un **contrat** (non implémenté ici). Aucun juge LLM dans la métrique primaire. Limites restantes : `keyword_tags`/`morphorepr_shuffled` non branchées ; `run_intervention_controls()` contractuel ; pas d'exécution réelle en CI standard (dev opt-in, provider réel requis) ; qualité des prédictions baselines dépendante du modèle primaire et des prompts (à geler avant tout full run) ; **aucune validation causale complète revendiquée**.
