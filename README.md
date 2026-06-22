@@ -10,7 +10,7 @@
 [![Paper: CC BY 4.0](https://img.shields.io/badge/Paper-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Paper v0.29](https://img.shields.io/badge/paper-v0.29-blue.svg)]()
-[![Procedure v6.6.1](https://img.shields.io/badge/test%20procedure-v6.6.1-orange.svg)]()
+[![Procedure v6.7.0](https://img.shields.io/badge/test%20procedure-v6.7.0-orange.svg)]()
 [![Status: Specification](https://img.shields.io/badge/status-position%20paper%20%2B%20test%20specification-orange.svg)]()
 
 ---
@@ -29,7 +29,7 @@ Read approximately as: *“not having acted physically / action-negation in a pa
 
 MorphoRepr does **not** claim to decode the internal representations of LLMs. It encodes structured, inspectable hypotheses about SAE features. These hypotheses must be evaluated through fidelity tests, activation prediction, and causal intervention experiments on a model where SAE activations are accessible.
 
-The current paper is **v0.29**. The current test procedure is **v6.6.1**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
+The current paper is **v0.29**. The current test procedure is **v6.7.0**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
 
 Starting with paper v0.29 and procedure v6.5.x, the protocol adopts an **open-weight reproducibility policy**: primary scientific claims are designed to be reproducible with open-weight or fully open models, and proprietary models (e.g. Anthropic) are used only as a secondary reference / comparison condition. See [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models).
 
@@ -41,7 +41,7 @@ Starting with paper v0.29 and procedure v6.5.x, the protocol adopts an **open-we
 - [Key Concepts](#key-concepts)
 - [Evaluation Protocol](#evaluation-protocol)
 - [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models)
-- [Test Procedure v6.6.1](#test-procedure-v661)
+- [Test Procedure v6.7.0](#test-procedure-v670)
 - [Repository Structure](#repository-structure)
 - [Current Status](#current-status)
 - [Paper](#paper)
@@ -125,7 +125,7 @@ A central correction in the v6 test procedure is the use of a robust feature ide
 feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}
 ```
 
-`feature_index` alone is not a stable identity: the same index can appear in multiple layers, hooks, SAE releases, or models. In the v6.6.1 procedure, `feature_uid` is the logical key used across agent outputs, baselines, shuffle controls, steering results, batch mappings, and user-study records.
+`feature_index` alone is not a stable identity: the same index can appear in multiple layers, hooks, SAE releases, or models. In the v6.7.0 procedure, `feature_uid` is the logical key used across agent outputs, baselines, shuffle controls, steering results, batch mappings, and user-study records.
 
 ### Model-run identity
 
@@ -141,7 +141,7 @@ model_run_id  →  one (provider, model, revision, inference environment) within
 
 ## Evaluation Protocol
 
-The v0.29 paper and v6.6.1 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
+The v0.29 paper and v6.7.0 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
 
 ### Feature splits
 
@@ -244,11 +244,11 @@ For each `model_run`, the protocol archives: exact model and tokenizer revisions
 
 ---
 
-## Test Procedure v6.6.1
+## Test Procedure v6.7.0
 
-The current test procedure is **v6.6.1**. It is a robust experimental specification, not yet a completed implementation of Phase 4.
+The current test procedure is **v6.7.0**. It is a robust experimental specification, not yet a completed implementation of Phase 4.
 
-### What v6.6.1 stabilizes
+### What v6.7.0 stabilizes
 
 The procedure includes:
 
@@ -275,18 +275,22 @@ The procedure includes:
 - a `model_runs` table and an open-weight reproducibility policy (Rule 11), with a legacy `model_run` explicitly created for the single-model path instead of relying on `NULL`;
 - strictly model-aware Phase 4 loading: steering only consumes encoder annotations from the primary `model_run_id`;
 - a real `steer_feature()` for the open-weight proxy path (TransformerLens + SAE Lens, `residual_add_decoder`): real before/after generations, measured latent activations, and `achieved_delta`; `sae_latent_clamp` and the production-model path raise explicit `NotImplementedError`;
+- a real `causal_scorer._load_pairs()` assembling deterministic prediction/observation pairs for the primary macro-F1 (model/split/OOD-aware, no LLM judge); baseline comparisons off by default (Option A);
 - Phase 4 guards so that dev runs can execute outside steering/scoring.
 
 ### Current Phase 4 status
 
 `steer_feature()` is **implemented for the open-weight proxy path** (TransformerLens + SAE Lens, `residual_add_decoder`): given `proxy_model.enabled=true`, it produces real `text_before`/`text_after` generations and measured `activation_before`/`activation_after`/`achieved_delta`/`ood_flag` per probe. The `sae_latent_clamp` mode and the nnsight / production-model path raise an explicit `NotImplementedError`.
 
-The following components are still contracts:
+`causal_scorer._load_pairs()` is **implemented** (v6.7.0): it assembles the deterministic prediction/observation pairs `(feature_uid, robust property)` for the primary macro-F1, strictly **model-aware, split-aware and OOD-aware**, reading predictions from `agent_outputs` and applying the deterministic classifiers to the steering `text_before`/`text_after`. No LLM judge is used in the primary metric. This enables a **minimal causal dev run for MorphoRepr**.
 
-- `run_intervention_controls()`;
-- `causal_scorer._load_pairs()`.
+Still a contract:
 
-Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`) and is **not auto-enabled**; the `assert_steering_ready()` guard must pass on a controlled dev run before any pilot/full run with steering. The v6.6.1 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering on the open-weight proxy**, but it does **not** claim causal validation: no causal result is produced until `causal_scorer._load_pairs()` is implemented. The scientific claims of the paper (v0.29) are unchanged.
+- `run_intervention_controls()`.
+
+Baseline comparisons (superiority vs NL, non-inferiority vs Semantic Regexes) are **off by default** (`causal_scoring.run_baseline_comparisons=false`, Option A): baseline predictor outputs are not wired yet, so the MorphoRepr score is written **without any superiority/non-inferiority verdict**.
+
+Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`, `causal_scoring.run_in_pipeline=false`) and is **not auto-enabled**; `assert_steering_ready()` must pass on a controlled dev run before any pilot/full run with steering. The v6.7.0 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering and a minimal MorphoRepr causal score on the open-weight proxy**, but it does **not** claim full causal validation: no published scientific result is asserted yet. The scientific claims of the paper (v0.29) are unchanged.
 
 ---
 
@@ -361,6 +365,7 @@ morphorepr-pipeline/
 │   ├── test_model_providers.py
 │   ├── test_model_run_propagation.py
 │   ├── test_steer_feature.py
+│   ├── test_causal_scorer.py
 │   └── test_pipeline_e2e.py
 ├── data/
 │   └── probes/
@@ -382,16 +387,16 @@ morphorepr-pipeline/
 
 ## Current Status
 
-This repository accompanies the v0.29 position paper and the v6.6.1 test procedure. No full experimental run has been completed yet.
+This repository accompanies the v0.29 position paper and the v6.7.0 test procedure. No full experimental run has been completed yet.
 
 | Component | Status |
 |-----------|--------|
 | Paper v0.29 | Written / current working version |
-| Test procedure v6.6.1 | Stable for dev plumbing; steer_feature() implemented for the open-weight proxy path |
+| Test procedure v6.7.0 | Stable for dev plumbing; steer_feature() implemented for the open-weight proxy path |
 | Formal grammar and parser specification | Available |
 | Predefined morpheme inventory | Available |
 | Free-root governance | Specified |
-| SQLite schema (incl. `model_runs`) | Specified (unchanged in v6.6.1) |
+| SQLite schema (incl. `model_runs`) | Specified (unchanged in v6.7.0) |
 | `feature_uid` identity model | Specified and propagated |
 | `model_run_id` multi-model identity | Specified and propagated (NOT NULL) |
 | Open-weight reproducibility policy (Rule 11) | Specified |
@@ -407,7 +412,8 @@ This repository accompanies the v0.29 position paper and the v6.6.1 test procedu
 | Phase 2 — Lexicon induction | Specification / implementation in progress |
 | Phase 3 — Feature encoding | Specification / implementation in progress |
 | Phase 4 — Steering | `steer_feature()` implemented for the open-weight proxy path; disabled by default |
-| Phase 4 — Causal scoring | Contract only (`causal_scorer._load_pairs()` not implemented) |
+| Phase 4 — Causal scoring | `causal_scorer._load_pairs()` implemented (MorphoRepr, model/split/OOD-aware); baseline comparisons off by default; disabled in pipeline by default |
+| Phase 4 — Intervention controls | Contract only (`run_intervention_controls()` not implemented) |
 | Phase 5 — Reporting | Planned |
 | Full scientific results | Not yet available |
 
@@ -420,7 +426,7 @@ This repository accompanies the v0.29 position paper and the v6.6.1 test procedu
 - **HAL:** https://hal.science/hal-05649380
 - **arXiv:** https://arxiv.org/abs/2606.XXXXX
 - **PDF:** `docs/paper_v0.29.pdf`
-- **Test procedure:** `docs/morphorepr_test_procedure_v6.6.1.md`
+- **Test procedure:** `docs/morphorepr_test_procedure_v6.7.0.md`
 
 The v0.29 paper covers:
 

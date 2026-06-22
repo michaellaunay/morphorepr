@@ -1,7 +1,7 @@
-# MorphoRepr — Procédure de test complète (v6.6.1)
+# MorphoRepr — Procédure de test complète (v6.7.0)
 ## Infrastructure expérimentale robuste pour une évaluation reproductible
 
-*Version 6.6.1 — Juin 2026. Cohérente avec l'article (≥ v0.29). **Durcissement** de l'implémentation v6.6.0 de `steer_feature()` (chemin proxy open-weight, TransformerLens + SAE Lens) : `_generate_text()` adapté aux signatures variables de `model.generate` (introspection), validations de shapes / dtype / `feature_index` avec erreurs explicites, sémantique `activation_before/after` clarifiée (Option A : mesure sur la phrase-sonde), et tests renforcés (hook réellement actif pendant la génération, dtype préservé, test slow opt-in robuste). Aucun changement de schéma vs v6.5.3. Philosophie v6.6.0 inchangée : Phase 4 **désactivée par défaut** (`steering.run_in_pipeline=false`, non activée automatiquement), non validée scientifiquement ; `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des contrats (`NotImplementedError`). Couche multi-modèle v6.5.3 (`model_run_id`, `_load_encoded_random_features`) intacte. Voir Section 25.*
+*Version 6.7.0 — Juin 2026. Cohérente avec l'article (≥ v0.29). **Extension fonctionnelle du scoring causal** : `causal_scorer._load_pairs()` est désormais **réellement implémenté** — il assemble les couples prédiction/observation `(feature_uid, propriété robuste)` de la métrique primaire déterministe, de façon **strictement model-aware, split-aware et OOD-aware**, en lisant les prédictions depuis `agent_outputs` et en appliquant les classifieurs déterministes aux `text_before/text_after` de `steering_results` (chemin steer_feature v6.6.x). Aucun juge LLM dans le primaire. Ceci débloque un **dev run causal minimal** pour MorphoRepr. **Pas de validation scientifique complète** : les comparaisons baselines sont désactivées par défaut (Option A : prédictions baselines non branchées → score MorphoRepr seul, sans verdict de supériorité/non-infériorité) ; `run_intervention_controls()` reste un contrat ; `causal_scoring.run_in_pipeline` reste `false` (non activé automatiquement). Aucun changement de schéma vs v6.5.3 (la colonne `metrics.model_run_id` existante est désormais renseignée pour le score d'un modèle précis). Couche multi-modèle et `steer_feature()` v6.6.1 intactes. Voir Section 26.*
 
 ---
 
@@ -39,7 +39,7 @@ Le tête-à-tête de validité causale (MorphoRepr vs étiquettes NL vs Semantic
 La comparaison prédiction/observation de la métrique primaire est **déterministe** : la direction prédite par l'agent de prédiction est comparée par **code** à la direction mesurée par les **classifieurs pré-enregistrés**. Aucun juge LLM n'intervient dans la métrique primaire. Un juge LLM (`qualitative_judge`) est réservé aux analyses qualitatives, cas ambigus et audit assisté (métriques secondaires). Le bootstrap est **clusterisé par feature** (l'unité de rééchantillonnage est la feature, pas le couple feature-propriété).
 
 **Règle 9 — La Phase 4 reste gardée tant qu'un dev run ne l'a pas validée**
-`steer_feature()` est **implémenté pour le chemin proxy open-weight** (TransformerLens + SAE Lens, `residual_add_decoder`) ; les chemins nnsight / modèle de production et l'espace `sae_latent_clamp` lèvent `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`). `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des contrats : la Phase 4 n'est pas scientifiquement validée et `steering.run_in_pipeline` reste `false` par défaut.
+`steer_feature()` est **implémenté pour le chemin proxy open-weight** (TransformerLens + SAE Lens, `residual_add_decoder`) ; les chemins nnsight / modèle de production et l'espace `sae_latent_clamp` lèvent `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`). `causal_scorer._load_pairs()` est **implémenté** (assemblage déterministe prédiction/observation, métrique primaire, model/split/OOD-aware — Sections 8 et 26) ; `run_intervention_controls()` reste un contrat. La Phase 4 n'est pas scientifiquement validée (comparaisons baselines désactivées par défaut, `causal_scoring.run_in_pipeline=false`).
 
 **Règle 10 — Identité de feature robuste**
 Un `feature_index` seul ne suffit pas : le même index peut exister dans plusieurs couches, releases SAE ou modèles. L'identité canonique est `feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}`, avec contrainte d'unicité. Au sein d'un run unique (un modèle, une release, un ensemble de couches), `feature_index` reste un identifiant pratique pour les jointures ; `feature_uid` garantit l'unicité cross-couche/cross-SAE et est propagé aux tables aval.
@@ -74,12 +74,12 @@ Les conclusions scientifiques principales ne doivent pas dépendre uniquement d'
 
 **Artefacts à archiver pour la reproduction.** Pour chaque `model_run` : révision exacte du modèle et du tokenizer, `weights_sha256`, `tokenizer_sha256`, image Docker/Conda (`inference_env_hash`), version CUDA, version du backend, `precision`/`quantization`, paramètres d'inférence (`generation_params_json` : température, top_p, seed, max_new_tokens), prompts (hashés, Règle 3) et **sorties brutes**. Sans ces artefacts, un run ne peut pas prétendre à la reproductibilité et ne peut pas porter de claim primaire (garde `validate_model_providers`, Section 5 bis).
 
-**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.6.1**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
+**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.7.0**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
 
 ```markdown
 ## MorphoRepr — état du dépôt
 - Article : v0.29 (politique de modèles ouverts ; claims primaires sur modèle ouvert).
-- Procédure de test : v6.6.1 (steer_feature durci pour le chemin proxy open-weight ; Phase 4 désactivée par défaut).
+- Procédure de test : v6.7.0 (steer_feature + causal_scorer._load_pairs implémentés pour un dev run causal ; Phase 4 désactivée par défaut).
 - Critère de validité causale : supériorité vs étiquettes NL (IC de la différence appariée,
   clusterisé par feature, excluant 0) ET non-infériorité vs Semantic Regexes (marge δ
   pré-enregistrée). NB : l'ancien critère « IC non chevauchants » est OBSOLÈTE.
@@ -169,6 +169,7 @@ morphorepr-pipeline/
 │   ├── test_model_providers.py      ← Règle 11 (tiers, gardes, cross-modèle)
 │   ├── test_model_run_propagation.py ← propagation effective de model_run_id (+ Phase 4 model-aware)
 │   ├── test_steer_feature.py        ← steer_feature (chemin proxy open-weight, durci v6.6.1)
+│   ├── test_causal_scorer.py        ← scoring causal + _load_pairs (assemblage prédiction/observation, v6.7.0)
 │   └── test_pipeline_e2e.py
 ├── orchestrator.py
 ├── requirements.txt
@@ -193,7 +194,7 @@ morphorepr-pipeline/
 # configs/run_v1.yaml
 
 run_id_prefix: "morphorepr_v1"
-description: "Full frozen run MorphoRepr v0.29 / procedure v6.6.1 — 500 features"
+description: "Full frozen run MorphoRepr v0.29 / procedure v6.7.0 — 500 features"
 
 # Reproductibilité
 git_commit: "FILL_BEFORE_LAUNCH"    # vérifié contre le HEAD Git réel à l'init
@@ -304,7 +305,8 @@ steering:
   # `steer_feature()` est IMPLÉMENTÉ pour le chemin proxy open-weight (TransformerLens + SAE
   # Lens, Section 7). Phase 4 reste néanmoins DÉSACTIVÉE par défaut tant que (a) `assert_steering_ready()`
   # n'a pas été validé sur un dev run (proxy_model.enabled=true) ET (b) le scoring causal reste
-  # contractuel (`causal_scorer._load_pairs()` non implémenté). Passer à true UNIQUEMENT après (a).
+  # contractuel : `causal_scorer._load_pairs()` est implémenté (v6.7.0), mais les comparaisons
+  # baselines sont désactivées par défaut. Passer à true UNIQUEMENT après (a).
   run_in_pipeline: false
   # Magnitude PRIMAIRE normalisée par feature : multiple du 99e percentile (activation_p99).
   # La magnitude absolue +5 (Anthropic, 2024) est conservée comme condition SECONDAIRE/historique.
@@ -357,11 +359,15 @@ stochastic_decoding:
 # Mode d'exécution : ajuste la volumétrie des sondes (dev/pilot → n_probe_sentences_pilot).
 run_mode: "full"                     # "dev" | "pilot" | "full"
 
-# Scoring causal (Phase 4) — métrique primaire déterministe. Désactivé par défaut tant que
-# causal_scorer._load_pairs() (lecture prédictions/observations) n'est pas implémenté ; gère
-# p4_predict, p4_score ET p4_qualitative (sans steering, ces phases n'ont pas de matière).
+# Scoring causal (Phase 4) — métrique primaire déterministe. `causal_scorer._load_pairs()` est
+# IMPLÉMENTÉ (assemblage prédiction/observation, model-aware, split-aware, OOD-aware). Le scoring
+# reste DÉSACTIVÉ par défaut (`run_in_pipeline=false`) ; il gère p4_predict, p4_score ET
+# p4_qualitative (sans prédictions ni steering, ces phases n'ont pas de matière). Les
+# comparaisons baselines sont séparément désactivées par défaut (Option A v6.7.0 : prédictions
+# baselines non encore branchées) → score MorphoRepr seul, sans verdict de supériorité.
 causal_scoring:
   run_in_pipeline: false
+  run_baseline_comparisons: false    # true uniquement si les prédictions baselines existent (Option B)
 
 # Modèle de validation — proxy open-weight PAR DÉFAUT (Règle 5).
 # Mettre enabled=false uniquement si un accès direct aux activations d'un modèle
@@ -457,10 +463,10 @@ seed: 42
 
 ---
 
-## 3. Schéma SQLite complet (v6.6.1)
+## 3. Schéma SQLite complet (v6.7.0)
 
 ```sql
--- db/schema.sql  —  Version 6.6.1 (aucun changement de schéma vs 6.5.3), ne jamais modifier après le full run
+-- db/schema.sql  —  Version 6.7.0 (aucun changement de schéma vs 6.5.3), ne jamais modifier après le full run
 
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -2456,7 +2462,8 @@ Phase 4 — Steering d'activation SAE.
 steer_feature() est IMPLÉMENTÉ pour le CHEMIN PROXY OPEN-WEIGHT (TransformerLens + SAE Lens,
 espace 'residual_add_decoder'). Les chemins nnsight / modèle de production NE SONT PAS
 implémentés (NotImplementedError explicite), de même que l'espace 'sae_latent_clamp'.
-run_intervention_controls() et causal_scorer._load_pairs() restent des CONTRATS.
+run_intervention_controls() reste un CONTRAT. causal_scorer._load_pairs() est IMPLÉMENTÉ
+(assemblage déterministe prédiction/observation, métrique primaire — Sections 8 et 26).
 Phase 4 reste DÉSACTIVÉE par défaut (steering.run_in_pipeline=false) ; assert_steering_ready()
 doit passer sur un dev run avant tout pilot/full run avec steering activé (Règle 9). L'objectif
 de la série v6.6.x est un dev run de Phase 4 testable, PAS une validation scientifique de la Phase 4.
@@ -3446,50 +3453,279 @@ def paired_diff_bootstrap(pairs_a: list[dict], pairs_b: list[dict],
             "n_shared_features": len(uids)}
 
 
-def _load_pairs(run_id: str, method: str) -> list[dict]:
-    """Assemble les couples (feature_uid, propriété robuste) {predicted, observed} pour une
-    méthode d'annotation. Contrat : predicted vient de l'agent 'predictor_{method}', observed
-    des classifieurs (stockés en metrics/steering). Restreint aux ROBUST_PROPERTIES."""
-    raise NotImplementedError(
-        "_load_pairs() : brancher la lecture des directions prédites (agent_outputs "
-        f"'predictor_{method}') et observées (classifieurs) en couples robustes. "
-        "Les fonctions de scoring ci-dessus sont, elles, complètes et testées."
-    )
+# ── v6.7.0 : assemblage RÉEL des couples prédiction/observation (métrique primaire) ──
+
+# agent_names acceptés par méthode (inspecter predictor.py / prompts ; ne pas inventer en silence)
+ACCEPTED_PREDICTOR_AGENTS = {
+    "morphorepr":          ["predictor", "predictor_morphorepr"],
+    "nl_labels":           ["predictor_nl_labels"],
+    "semantic_regex":      ["predictor_semantic_regex"],
+    "keyword_tags":        ["predictor_keyword_tags"],
+    "morphorepr_shuffled": ["predictor_morphorepr_shuffled"],
+}
+
+# Map propriété robuste → classifieur déterministe. Rempli paresseusement (les classifieurs ne
+# sont pas importés au chargement du module) ou monkeypatché en test. negative_valence est EXCLU
+# du primaire (valence semi-robuste).
+CLASSIFIER_BY_PROPERTY = None
+
+_DIRECTION_ALIASES = {
+    "increase": "INCREASE", "up": "INCREASE", "more": "INCREASE", "INCREASE": "INCREASE",
+    "decrease": "DECREASE", "down": "DECREASE", "less": "DECREASE", "DECREASE": "DECREASE",
+    "no_change": "NO_CHANGE", "unchanged": "NO_CHANGE", "none": "NO_CHANGE", "NO_CHANGE": "NO_CHANGE",
+}
+
+
+def _default_classifier_map() -> dict:
+    """Import paresseux des classifieurs robustes (négation, temps, code, modalité conditionnelle).
+    negative_valence (semi-robuste) n'est PAS inclus dans la métrique primaire."""
+    import classifiers.negation, classifiers.tense, classifiers.code_presence, classifiers.modality
+    return {
+        "negation_presence":    classifiers.negation.measure,
+        "tense":                classifiers.tense.measure,
+        "code_presence":        classifiers.code_presence.measure,
+        "conditional_modality": classifiers.modality.measure,
+    }
+
+
+def _normalize_direction(value) -> str | None:
+    """Normalise une direction (aliases) vers INCREASE/DECREASE/NO_CHANGE. Renvoie None pour
+    une direction ambiguë (UNKNOWN, null, chaîne vide, valeur non reconnue) — JAMAIS NO_CHANGE
+    par défaut silencieux."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    if not v:
+        return None
+    return _DIRECTION_ALIASES.get(v) or _DIRECTION_ALIASES.get(v.lower())
+
+
+def _extract_predicted_directions(output_json) -> dict[str, str]:
+    """Convertit la sortie du prédicteur en {property: DIRECTION}. Accepte 3 formats :
+      1) {"predictions": [{"property","direction","confidence"?}, ...]}
+      2) {"properties": {"prop": "DIR"}}
+      3) {"properties": {"prop": {"direction": "DIR", ...}}}
+    Les directions ambiguës / propriétés non reconnues sont écartées (non incluses)."""
+    if isinstance(output_json, str):
+        output_json = json.loads(output_json)
+    out: dict[str, str] = {}
+    if not isinstance(output_json, dict):
+        return out
+    preds = output_json.get("predictions")
+    if isinstance(preds, list):
+        for item in preds:
+            if not isinstance(item, dict):
+                continue
+            prop = item.get("property")
+            d = _normalize_direction(item.get("direction"))
+            if prop and d:
+                out[prop] = d
+    props = output_json.get("properties")
+    if isinstance(props, dict):
+        for prop, val in props.items():
+            d = _normalize_direction(val.get("direction")) if isinstance(val, dict) else _normalize_direction(val)
+            if prop and d:
+                out[prop] = d
+    return out
+
+
+def _primary_magnitude_key(config: dict) -> str:
+    """Clé TEXTE de la magnitude PRIMAIRE (cohérente avec steerer._run_steering_batch) :
+    'rel:{primary_magnitude_rel}' en mode p99_relative, 'abs:{legacy_absolute_magnitude}' en
+    mode absolute. Le contrôle 'rel:0.0' n'est PAS la magnitude primaire (analyses secondaires)."""
+    st = config.get("steering", {})
+    if st.get("magnitude_mode", "p99_relative") == "absolute":
+        return f"abs:{st.get('legacy_absolute_magnitude', 5)}"
+    return f"rel:{st.get('primary_magnitude_rel', 1.0)}"
+
+
+def _observe_property_direction(rows: list[dict], property_name: str, classifier_fn) -> dict | None:
+    """Applique le classifieur déterministe d'une propriété aux paires (text_before, text_after)
+    non nulles. Renvoie {property, direction, n_observations, details} ou None si aucune paire
+    valide. Lève ValueError si le classifieur renvoie une direction invalide (jamais converti
+    silencieusement en NO_CHANGE)."""
+    before = [r["text_before"] for r in rows if r.get("text_before") and r.get("text_after")]
+    after  = [r["text_after"]  for r in rows if r.get("text_before") and r.get("text_after")]
+    if not before:
+        return None
+    out = classifier_fn(before, after)
+    direction = out.get("direction") if isinstance(out, dict) else None
+    if direction not in DIRECTIONS:
+        raise ValueError(
+            f"Classifieur de '{property_name}' a renvoyé une direction invalide : {direction!r} "
+            f"(attendu ∈ {DIRECTIONS})."
+        )
+    return {"property": property_name, "direction": direction,
+            "n_observations": len(before), "details": out}
+
+
+def _load_pairs(run_id: str,
+                method: str,
+                config: dict | None = None,
+                model_run_id: str | None = None,
+                split: str = "random") -> list[dict]:
+    """Assemble les couples {feature_uid, model_run_id, property, predicted, observed, method,
+    n_observations, metadata} pour la métrique primaire DÉTERMINISTE, STRICTEMENT model-aware et
+    split-aware. predicted ← agent_outputs (agent prédicteur de la méthode) ; observed ←
+    classifieurs déterministes appliqués aux text_before/text_after de steering_results à la
+    MAGNITUDE PRIMAIRE. Restreint aux ROBUST_PROPERTIES. Aucun juge LLM. Aucune pseudo-observation.
+
+    Sélection du modèle (Règle 11) : model_run_id explicite, sinon config['_runtime']['model_run_ids']
+    ['primary'], sinon ensure_legacy_model_run(run_id). Jamais de mélange entre modèles."""
+    config = config or {}
+    from utils.db_utils import ensure_legacy_model_run
+    if model_run_id is None:
+        model_run_id = (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+                        or ensure_legacy_model_run(run_id))
+    if method not in ACCEPTED_PREDICTOR_AGENTS:
+        raise NotImplementedError(
+            f"_load_pairs : méthode inconnue {method!r} (aucun agent prédicteur déclaré dans "
+            f"ACCEPTED_PREDICTOR_AGENTS)."
+        )
+    accepted = ACCEPTED_PREDICTOR_AGENTS[method]
+    st = config.get("steering", {})
+    exclude_ood  = bool(st.get("exclude_ood_from_primary", True))
+    probe_family = st.get("primary_probe_family", "neutral")
+    space        = st.get("intervention_space", "residual_add_decoder")
+    mag_key      = _primary_magnitude_key(config)
+
+    # A. PRÉDICTIONS (agent_outputs, model-aware, split-aware)
+    ph = ",".join("?" for _ in accepted)
+    with get_conn() as conn:
+        pred_rows = conn.execute(f"""
+            SELECT ao.feature_uid, ao.output_json
+            FROM agent_outputs ao JOIN features f ON f.feature_uid = ao.feature_uid
+            WHERE ao.run_id = ? AND ao.model_run_id = ? AND ao.status = 'ok'
+              AND ao.agent_name IN ({ph}) AND f.split = ?
+        """, (run_id, model_run_id, *accepted, split)).fetchall()
+    if not pred_rows:
+        raise RuntimeError(
+            f"No predictor outputs found for method={method}, run_id={run_id}, "
+            f"model_run_id={model_run_id} (agent_name ∈ {accepted}, split={split})."
+        )
+    predicted: dict[str, dict[str, str]] = {}
+    for r in pred_rows:
+        dirs = _extract_predicted_directions(r["output_json"])
+        for prop in list(dirs):
+            if prop not in ROBUST_PROPERTIES:
+                logger.debug(f"_load_pairs: propriété non robuste ignorée hors primaire : {prop!r}")
+        predicted.setdefault(r["feature_uid"], {}).update(
+            {p: d for p, d in dirs.items() if p in ROBUST_PROPERTIES}
+        )
+
+    # B. OBSERVATIONS (steering_results à la magnitude primaire, neutres, model/split-aware)
+    with get_conn() as conn:
+        q = """
+            SELECT sr.feature_uid, sr.text_before, sr.text_after, sr.generation_index, sr.ood_flag
+            FROM steering_results sr JOIN features f ON f.feature_uid = sr.feature_uid
+            WHERE sr.run_id = ? AND sr.model_run_id = ? AND sr.magnitude_key = ?
+              AND sr.intervention_space = ? AND sr.probe_family = ? AND sr.probe_category IS NULL
+              AND sr.text_after IS NOT NULL AND f.split = ?
+        """
+        if exclude_ood:
+            q += " AND sr.ood_flag = 0"
+        obs_rows = conn.execute(q, (run_id, model_run_id, mag_key, space, probe_family, split)).fetchall()
+    if not obs_rows:
+        raise RuntimeError(
+            f"No steering observations found for method={method}, run_id={run_id}, "
+            f"model_run_id={model_run_id}, magnitude_key={mag_key}, probe_family={probe_family}, "
+            f"split={split}. Did you run p4_steer first?"
+        )
+    obs_by_feat: dict[str, list[dict]] = {}
+    for r in obs_rows:
+        obs_by_feat.setdefault(r["feature_uid"], []).append(dict(r))
+
+    cmap = CLASSIFIER_BY_PROPERTY or _default_classifier_map()
+
+    # C. ASSEMBLAGE — un couple seulement si prédiction ET observation existent pour une propriété ROBUSTE
+    pairs = []
+    for uid, props in predicted.items():
+        if uid not in obs_by_feat:
+            logger.info(f"_load_pairs: feature {uid} a des prédictions mais aucune observation "
+                        f"steering (magnitude primaire) — ignorée (pas de score artificiel).")
+            continue
+        rows = obs_by_feat[uid]
+        for prop in ROBUST_PROPERTIES:
+            pred_dir = props.get(prop)
+            if pred_dir is None:
+                continue
+            classifier_fn = cmap.get(prop)
+            if classifier_fn is None:
+                raise KeyError(f"Aucun classifieur enregistré pour la propriété robuste {prop!r}.")
+            obs = _observe_property_direction(rows, prop, classifier_fn)
+            if obs is None:
+                logger.info(f"_load_pairs: feature {uid} / {prop} sans paire before/after valide — ignorée.")
+                continue
+            pairs.append({
+                "feature_uid":    uid,
+                "model_run_id":   model_run_id,
+                "property":       prop,
+                "predicted":      pred_dir,
+                "observed":       obs["direction"],
+                "method":         method,
+                "n_observations": obs["n_observations"],
+                "metadata": {"magnitude_key": mag_key, "probe_family": probe_family, "split": split},
+            })
+    if not pairs:
+        raise RuntimeError(
+            f"No causal pairs assembled for method={method}, run_id={run_id}, "
+            f"model_run_id={model_run_id} : des prédictions et des observations existent, mais "
+            f"aucune propriété ROBUSTE n'est commune aux deux."
+        )
+    return pairs
 
 
 def run(run_id: str, config: dict):
-    """Métrique primaire : macro-F1 global sur couples + bootstrap clusterisé par feature,
-    et différences appariées vs baselines (supériorité vs NL ; non-infériorité vs Semantic
-    Regexes avec marge nim_delta). Persiste le tout dans metrics."""
-    nim = config["thresholds"].get("nim_delta", 0.05)
-    mr = _load_pairs(run_id, "morphorepr")          # lève NotImplementedError tant que non branché
+    """Métrique primaire : macro-F1 global sur couples + bootstrap clusterisé par feature.
+    STRICTEMENT model-aware (modèle primaire) et split-aware. Persiste dans metrics AVEC
+    model_run_id (NULL réservé aux agrégats cross-modèles). Les comparaisons baselines ne sont
+    exécutées que si causal_scoring.run_baseline_comparisons=true (Option A par défaut : score
+    MorphoRepr seul, sans verdict de supériorité/non-infériorité)."""
+    from utils.db_utils import ensure_legacy_model_run
+    nim   = config["thresholds"].get("nim_delta", 0.05)
+    split = config.get("primary_split", "random")
+    model_run_id = (config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+                    or ensure_legacy_model_run(run_id))
+
+    mr    = _load_pairs(run_id, "morphorepr", config=config, model_run_id=model_run_id, split=split)
     point = compute_global_macro_f1(mr)
     ci    = feature_clustered_bootstrap(mr, config["stats"].get("bootstrap_resamples", 10000),
                                         config.get("seed", 42))
     results = {"morphorepr": {**point, **ci}, "comparisons": {}}
-    for base in config["stats"].get("superiority_vs", []) + config["stats"].get("non_inferiority_vs", []):
-        d = paired_diff_bootstrap(mr, _load_pairs(run_id, base),
-                                  config["stats"].get("bootstrap_resamples", 10000),
-                                  config.get("seed", 42))
-        mode = "non_inferiority" if base in config["stats"].get("non_inferiority_vs", []) else "superiority"
-        d["verdict"] = (("pass" if d["ci_low"] > -nim else "fail") if mode == "non_inferiority"
-                        else ("pass" if d["ci_low"] > 0 else "fail"))
-        results["comparisons"][base] = {"mode": mode, **d}
+
+    if config.get("causal_scoring", {}).get("run_baseline_comparisons", False):
+        for base in config["stats"].get("superiority_vs", []) + config["stats"].get("non_inferiority_vs", []):
+            d = paired_diff_bootstrap(
+                mr, _load_pairs(run_id, base, config=config, model_run_id=model_run_id, split=split),
+                config["stats"].get("bootstrap_resamples", 10000), config.get("seed", 42))
+            mode = "non_inferiority" if base in config["stats"].get("non_inferiority_vs", []) else "superiority"
+            d["verdict"] = (("pass" if d["ci_low"] > -nim else "fail") if mode == "non_inferiority"
+                            else ("pass" if d["ci_low"] > 0 else "fail"))
+            results["comparisons"][base] = {"mode": mode, **d}
+    else:
+        logger.warning(
+            "Comparaisons baselines IGNORÉES (Option A v6.7.0 : prédictions baselines non "
+            "branchées ; causal_scoring.run_baseline_comparisons=false). AUCUN verdict de "
+            "supériorité/non-infériorité n'est produit ; seul causal_macro_f1_global (MorphoRepr) "
+            "est écrit."
+        )
+
     with get_conn() as conn:
-        conn.execute("""INSERT INTO metrics (metric_id, run_id, phase, split, metric_name,
-                        value, ci_low, ci_high, n_samples, baseline, computed_at)
-                        VALUES (?, ?, 'p4_score', 'random', 'causal_macro_f1_global',
+        conn.execute("""INSERT INTO metrics (metric_id, run_id, model_run_id, phase, split,
+                        metric_name, value, ci_low, ci_high, n_samples, baseline, computed_at)
+                        VALUES (?, ?, ?, 'p4_score', ?, 'causal_macro_f1_global',
                                 ?, ?, ?, ?, NULL, ?)""",
-                     (str(uuid4()), run_id, point["macro_f1"], ci["ci_low"], ci["ci_high"],
-                      point["n_pairs"], datetime.utcnow().isoformat()))
+                     (str(uuid4()), run_id, model_run_id, split, point["macro_f1"],
+                      ci["ci_low"], ci["ci_high"], point["n_pairs"], datetime.utcnow().isoformat()))
         for base, d in results["comparisons"].items():
-            conn.execute("""INSERT INTO metrics (metric_id, run_id, phase, split, metric_name,
-                            value, ci_low, ci_high, n_samples, baseline, computed_at)
-                            VALUES (?, ?, 'p4_score', 'random', 'causal_macro_f1_paired_diff',
+            conn.execute("""INSERT INTO metrics (metric_id, run_id, model_run_id, phase, split,
+                            metric_name, value, ci_low, ci_high, n_samples, baseline, computed_at)
+                            VALUES (?, ?, ?, 'p4_score', ?, 'causal_macro_f1_paired_diff',
                                     ?, ?, ?, ?, ?, ?)""",
-                         (str(uuid4()), run_id, d["diff"], d["ci_low"], d["ci_high"],
-                          d["n_shared_features"], base, datetime.utcnow().isoformat()))
-    logger.info(f"Score causal global : macro-F1={point['macro_f1']} IC95={ci}")
+                         (str(uuid4()), run_id, model_run_id, split, d["diff"], d["ci_low"],
+                          d["ci_high"], d["n_shared_features"], base, datetime.utcnow().isoformat()))
+    logger.info(f"Score causal global (split={split}, model_run_id={model_run_id}) : "
+                f"macro-F1={point['macro_f1']} IC95={ci}")
     return results
 ```
 
@@ -4011,6 +4247,235 @@ def test_paired_diff_sur_features_partagees():
          for i in range(10)]
     d = paired_diff_bootstrap(a, b, n_resamples=200, seed=1)
     assert d["n_shared_features"] == 10 and d["diff"] > 0   # A (parfait) > B
+
+
+# ─────────────────────────────────────────────
+# v6.7.0 : _load_pairs() — assemblage réel prédiction/observation (métrique primaire)
+# ─────────────────────────────────────────────
+import json as _json
+import sqlite3 as _sqlite3
+import pytest as _pytest
+import agents.causal_scorer as cs
+from agents.causal_scorer import (
+    _load_pairs, _extract_predicted_directions, _normalize_direction,
+    _primary_magnitude_key, _observe_property_direction, run as causal_run,
+)
+
+_CFG_CAUSAL = {
+    "primary_split": "random",
+    "steering": {"magnitude_mode": "p99_relative", "primary_magnitude_rel": 1.0,
+                 "legacy_absolute_magnitude": 5, "primary_probe_family": "neutral",
+                 "exclude_ood_from_primary": True},
+    "stats": {"bootstrap_resamples": 50, "superiority_vs": ["nl_labels"],
+              "non_inferiority_vs": ["semantic_regex"]},
+    "thresholds": {"nim_delta": 0.05},
+    "causal_scoring": {"run_baseline_comparisons": False},
+    "seed": 42,
+}
+
+
+def _mk_run(conn, run_id="r1"):
+    conn.execute("""INSERT INTO runs (run_id,git_commit,config_hash,prompt_hashes,lexicon_version,
+        lexicon_hash,corpus_hash,models_json,use_temperature,temperature,seed,proxy_model,started_at,
+        completed_at,status,last_phase,total_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (run_id, 'c', 'h', '{}', 'v1', 'lh', 'ch', '{}', 0, None, 42, None,
+         '2026-01-01', None, 'running', None, 0.0))
+
+
+def _mk_model_run(conn, run_id, mrid, name="primary", tier="B_open_weight"):
+    conn.execute("""INSERT INTO model_runs (model_run_id, run_id, provider_name, provider_tier,
+        backend, model_name, generation_params_json, created_at)
+        VALUES (?,?,?,?,?,?,'{}','2026-01-01')""", (mrid, run_id, "p", tier, "vllm", name))
+
+
+def _mk_feature(conn, idx, split="random"):
+    uid = f"gpt2:res-jb:6:hook_resid_post:{idx}"
+    conn.execute("""INSERT INTO features (feature_uid,model_name,sae_release,layer_index,hook_name,
+        feature_index,split,nl_description,top_examples,score_interp,activation_freq,activation_p99,
+        activation_mean,activation_std,layer,neuronpedia_url,loaded_at) VALUES
+        (?, 'gpt2','res-jb',6,'hook_resid_post',?,?,'d','[]',0.8,0.5,2.0,0.8,0.4,'6','x','2026-01-01')""",
+        (uid, idx, split))
+    return uid
+
+
+def _mk_prediction(conn, run_id, mrid, uid, idx, props, agent="predictor"):
+    conn.execute("""INSERT INTO agent_outputs (output_id,run_id,model_run_id,feature_uid,feature_index,
+        agent_name,run_number,output_json,raw_output,status,error_msg,tokens_input,tokens_output,
+        batch_id,cost_usd,coefficient_type,created_at) VALUES
+        (?,?,?,?,?,?,1,?,?,'ok',NULL,1,1,NULL,0.0,'confidence','2026-01-01')""",
+        (f"p-{mrid}-{idx}-{agent}", run_id, mrid, uid, idx, agent,
+         _json.dumps({"status": "ok", "properties": props}), "raw"))
+
+
+def _mk_steer(conn, run_id, mrid, uid, idx, before, after, mag_key="rel:1.0",
+              ood=0, gen=0, family="neutral", cat=None):
+    conn.execute("""INSERT INTO steering_results (result_id,run_id,model_run_id,feature_uid,
+        feature_index,intervention_space,magnitude,magnitude_rel,magnitude_key,probe_id,probe_family,
+        probe_category,generation_index,text_before,text_after,layer,token_position,activation_before,
+        activation_after,achieved_delta,ood_flag,created_at) VALUES
+        (?,?,?,?,?, 'residual_add_decoder', 2.0, 1.0, ?, ?, ?, ?, ?, ?, ?, '6','all',1.0,2.0,1.0,?,'2026-01-01')""",
+        (f"s-{mrid}-{idx}-{gen}-{family}-{cat}", run_id, mrid, uid, idx, mag_key, idx, family, cat,
+         gen, before, after, ood))
+
+
+# 1-3. Extraction / normalisation des directions prédites
+def test_extract_predictions_canonical():
+    out = _extract_predicted_directions({"status": "ok", "predictions": [
+        {"property": "negation_presence", "direction": "increase", "confidence": 0.8},
+        {"property": "tense", "direction": "NO_CHANGE"}]})
+    assert out == {"negation_presence": "INCREASE", "tense": "NO_CHANGE"}
+
+
+def test_extract_predictions_dict_and_objects():
+    assert _extract_predicted_directions(
+        {"properties": {"negation_presence": "increase", "tense": "down"}}
+    ) == {"negation_presence": "INCREASE", "tense": "DECREASE"}
+    assert _extract_predicted_directions(
+        {"properties": {"negation_presence": {"direction": "INCREASE", "confidence": 0.8}}}
+    ) == {"negation_presence": "INCREASE"}
+
+
+def test_extract_rejects_invalid_directions():
+    out = _extract_predicted_directions({"properties": {
+        "negation_presence": "UNKNOWN", "tense": None, "code_presence": "",
+        "conditional_modality": "increase"}})
+    assert out == {"conditional_modality": "INCREASE"}     # seules les directions valides retenues
+    assert _normalize_direction("UNKNOWN") is None
+    assert _normalize_direction(None) is None and _normalize_direction("") is None
+
+
+# 4. Observation via classifieur déterministe
+def test_observe_property_direction():
+    rows = [{"text_before": "a", "text_after": "b"}, {"text_before": "c", "text_after": "d"},
+            {"text_before": None, "text_after": "x"}]
+    obs = _observe_property_direction(rows, "tense", lambda tb, ta: {"direction": "INCREASE"})
+    assert obs["direction"] == "INCREASE" and obs["n_observations"] == 2   # paire None ignorée
+
+
+def test_observe_invalid_direction_raises():
+    with _pytest.raises(ValueError):
+        _observe_property_direction([{"text_before": "a", "text_after": "b"}], "tense",
+                                    lambda tb, ta: {"direction": "WUT"})
+
+
+# 5. Clé de magnitude primaire
+def test_primary_magnitude_key():
+    assert _primary_magnitude_key({"steering": {"magnitude_mode": "p99_relative",
+                                                 "primary_magnitude_rel": 1.0}}) == "rel:1.0"
+    assert _primary_magnitude_key({"steering": {"magnitude_mode": "absolute",
+                                                 "legacy_absolute_magnitude": 5}}) == "abs:5"
+
+
+# 6. OOD exclu/inclus selon la config
+def test_load_pairs_ood_filter(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    uid = _mk_feature(conn, 1, "random")
+    _mk_prediction(conn, "r1", "mrP", uid, 1, {"negation_presence": "INCREASE"})
+    _mk_steer(conn, "r1", "mrP", uid, 1, "x", "y", ood=0, gen=0)
+    _mk_steer(conn, "r1", "mrP", uid, 1, "x2", "y2", ood=1, gen=1)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY",
+                        {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    p1 = _load_pairs("r1", "morphorepr", config=_CFG_CAUSAL, model_run_id="mrP", split="random")
+    assert len(p1) == 1 and p1[0]["n_observations"] == 1           # OOD exclu
+    cfg2 = _json.loads(_json.dumps(_CFG_CAUSAL)); cfg2["steering"]["exclude_ood_from_primary"] = False
+    p2 = _load_pairs("r1", "morphorepr", config=cfg2, model_run_id="mrP", split="random")
+    assert p2[0]["n_observations"] == 2                            # OOD inclus
+
+
+# 7. Strictement model-aware
+def test_load_pairs_model_aware(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn)
+    _mk_model_run(conn, "r1", "mrP", "primary"); _mk_model_run(conn, "r1", "mrS", "secondary", "C_proprietary_api")
+    uid = _mk_feature(conn, 1, "random")
+    _mk_prediction(conn, "r1", "mrP", uid, 1, {"negation_presence": "INCREASE"})
+    _mk_prediction(conn, "r1", "mrS", uid, 1, {"negation_presence": "DECREASE"})
+    _mk_steer(conn, "r1", "mrP", uid, 1, "a", "b")
+    _mk_steer(conn, "r1", "mrS", uid, 1, "c", "d")
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY",
+                        {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    pairs = _load_pairs("r1", "morphorepr", config=_CFG_CAUSAL, model_run_id="mrP", split="random")
+    assert len(pairs) == 1 and pairs[0]["model_run_id"] == "mrP" and pairs[0]["predicted"] == "INCREASE"
+    # le primaire ne charge jamais la prédiction DECREASE du secondaire
+
+
+# 8. Strictement split-aware
+def test_load_pairs_split_aware(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    ur = _mk_feature(conn, 1, "random"); ue = _mk_feature(conn, 2, "easy")
+    _mk_prediction(conn, "r1", "mrP", ur, 1, {"tense": "INCREASE"})
+    _mk_prediction(conn, "r1", "mrP", ue, 2, {"tense": "INCREASE"})
+    _mk_steer(conn, "r1", "mrP", ur, 1, "a", "b"); _mk_steer(conn, "r1", "mrP", ue, 2, "c", "d")
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY",
+                        {"tense": lambda tb, ta: {"direction": "INCREASE"}})
+    pairs = _load_pairs("r1", "morphorepr", config=_CFG_CAUSAL, model_run_id="mrP", split="random")
+    assert {p["feature_uid"] for p in pairs} == {ur}               # easy exclu
+
+
+# 9-10. Absences explicites
+def test_load_pairs_no_steering_raises(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    uid = _mk_feature(conn, 1, "random"); _mk_prediction(conn, "r1", "mrP", uid, 1, {"tense": "INCREASE"})
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {"tense": lambda tb, ta: {"direction": "INCREASE"}})
+    with _pytest.raises(RuntimeError, match="p4_steer"):
+        _load_pairs("r1", "morphorepr", config=_CFG_CAUSAL, model_run_id="mrP", split="random")
+
+
+def test_load_pairs_no_predictor_raises(test_db):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    uid = _mk_feature(conn, 1, "random"); _mk_steer(conn, "r1", "mrP", uid, 1, "a", "b")
+    conn.commit(); conn.close()
+    with _pytest.raises(RuntimeError, match="No predictor outputs"):
+        _load_pairs("r1", "morphorepr", config=_CFG_CAUSAL, model_run_id="mrP", split="random")
+
+
+def test_load_pairs_unknown_method_raises():
+    with _pytest.raises(NotImplementedError):
+        _load_pairs("r1", "does_not_exist", config=_CFG_CAUSAL, model_run_id="mrP")
+
+
+# 11. Couple final assemblé
+def test_load_pairs_assembles_pair(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    uid = _mk_feature(conn, 1, "random")
+    _mk_prediction(conn, "r1", "mrP", uid, 1, {"negation_presence": "INCREASE"})
+    _mk_steer(conn, "r1", "mrP", uid, 1, "no problems", "not a problem, no issues")
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY", {
+        "negation_presence": lambda tb, ta: {"property": "negation_presence", "direction": "INCREASE"}})
+    pairs = _load_pairs("r1", "morphorepr", config=_CFG_CAUSAL, model_run_id="mrP", split="random")
+    assert len(pairs) == 1
+    p = pairs[0]
+    assert (p["predicted"] == "INCREASE" and p["observed"] == "INCREASE"
+            and p["property"] == "negation_presence" and p["method"] == "morphorepr")
+
+
+# 12-13. run() minimal : métrique écrite avec model_run_id ; baselines skipped (Option A)
+def test_run_minimal_writes_metric_and_skips_baselines(test_db, monkeypatch):
+    conn = _sqlite3.connect(test_db); _mk_run(conn); _mk_model_run(conn, "r1", "mrP")
+    for i in (1, 2, 3):
+        uid = _mk_feature(conn, i, "random")
+        _mk_prediction(conn, "r1", "mrP", uid, i, {"negation_presence": "INCREASE"})
+        _mk_steer(conn, "r1", "mrP", uid, i, "a", "b")
+    conn.commit(); conn.close()
+    monkeypatch.setattr(cs, "CLASSIFIER_BY_PROPERTY",
+                        {"negation_presence": lambda tb, ta: {"direction": "INCREASE"}})
+    cfg = _json.loads(_json.dumps(_CFG_CAUSAL))
+    cfg["_runtime"] = {"model_run_ids": {"primary": "mrP"}}        # run() lit le primaire
+    res = causal_run("r1", cfg)
+    assert res["morphorepr"]["macro_f1"] == 1.0                    # toutes prédictions == observations
+    assert res["comparisons"] == {}                                # Option A : baselines skipped
+    conn = _sqlite3.connect(test_db)
+    row = conn.execute("""SELECT model_run_id, split FROM metrics
+                          WHERE metric_name='causal_macro_f1_global'""").fetchone()
+    n_diff = conn.execute("""SELECT COUNT(*) FROM metrics
+                             WHERE metric_name='causal_macro_f1_paired_diff'""").fetchone()[0]
+    conn.close()
+    assert row[0] == "mrP" and row[1] == "random"                  # metrics.model_run_id renseigné
+    assert n_diff == 0                                             # aucun verdict baseline (pas de faux pass/fail)
 ```
 
 ```python
@@ -4737,7 +5202,7 @@ def test_steer_feature_integration_slow():
 ```python
 # orchestrator.py
 """
-Orchestrateur MorphoRepr v6.6.1 — run gelé et auditable.
+Orchestrateur MorphoRepr v6.7.0 — run gelé et auditable.
 
 Usage :
     python orchestrator.py --config configs/run_v1.yaml
@@ -5009,8 +5474,9 @@ PHASES = [
                                                                      "Steering (traitement)"),
     ("p4_controls",    lambda rid, cfg: steerer.run_intervention_controls(rid, cfg),
                                                                      "Contrôles d'intervention"),
-    # Phases de scoring causal : gardées par causal_scoring.run_in_pipeline (sans steering ni
-    # observations classifieurs, elles n'ont pas encore de matière ; _load_pairs() = contrat).
+    # Phases de scoring causal : gardées par causal_scoring.run_in_pipeline (sans prédictions ni
+    # steering, elles n'ont pas de matière). _load_pairs() est implémenté (v6.7.0) ; les
+    # comparaisons baselines restent gardées par causal_scoring.run_baseline_comparisons.
     ("p4_predict",     lambda rid, cfg: (predictor.run(rid)
                           if cfg.get("causal_scoring", {}).get("run_in_pipeline", False)
                           else logger.warning("p4_predict désactivé (causal_scoring.run_in_pipeline=false)")),
@@ -5018,7 +5484,7 @@ PHASES = [
     # Métrique PRIMAIRE = score déterministe (prédiction vs classifieurs), SANS juge LLM (Règle 8)
     ("p4_score",       lambda rid, cfg: (causal_scorer.run(rid, cfg)
                           if cfg.get("causal_scoring", {}).get("run_in_pipeline", False)
-                          else logger.warning("p4_score désactivé (_load_pairs non implémenté)")),
+                          else logger.warning("p4_score désactivé (causal_scoring.run_in_pipeline=false)")),
                                                                      "Score causal DÉTERMINISTE (primaire)"),
     # Juge LLM qualitatif : analyses SECONDAIRES uniquement (cas ambigus, audit)
     ("p4_qualitative", lambda rid, cfg: (qualitative_judge.run(rid, cfg)
@@ -5172,9 +5638,10 @@ python orchestrator.py --config configs/dev_run.yaml --n-features 5
 # Vérifier : DB peuplée, JSON parsés, coût < 1$, hash corpus gelé après p1_rank
 # (status passe de 'loading' à 'running_frozen').
 # En dev run hors steering, p4_predict, p4_score et p4_qualitative sont SAUTÉS par défaut
-# (causal_scoring.run_in_pipeline=false). La métrique causale primaire (déterministe,
-# p4_score = causal_scorer) ne sera testée qu'APRÈS implémentation de steer_feature(), des
-# classifieurs d'observation et de causal_scorer._load_pairs().
+# (causal_scoring.run_in_pipeline=false). steer_feature() (v6.6.x) et causal_scorer._load_pairs()
+# (v6.7.0) sont implémentés : un dev run causal MINIMAL (MorphoRepr seul) est possible en
+# activant causal_scoring.run_in_pipeline=true sur un run contrôlé ayant des prédictions et du
+# steering. Les comparaisons baselines restent désactivées (causal_scoring.run_baseline_comparisons=false).
 
 # ── 6. Pilot run (40 features — calibration) ────────────────
 python orchestrator.py --config configs/pilot_run.yaml --n-features 40
@@ -5540,7 +6007,7 @@ Correctif **final** de propagation multi-modèle. `model_run_id` était présent
 
 **3. `get_unconsumed_batch(model_run_id=None)` résout le legacy.** Comme `batches.model_run_id` est NOT NULL, un filtre `IS NULL` ne pouvait plus rien matcher. La fonction résout désormais `ensure_legacy_model_run(run_id)` quand `model_run_id is None` (et filtre par égalité). Un batch legacy enregistré via `register_batch(..., model_run_id=None)` est de nouveau retrouvable. Test `test_get_unconsumed_batch_legacy_retrouvable`.
 
-**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.6.1 — 500 features"` (résidu v0.28 supprimé).
+**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.7.0 — 500 features"` (résidu v0.28 supprimé).
 
 **5. Reprise : restauration des `model_run_ids`.** Nouvelle fonction `restore_model_run_ids(run_id, config)` qui reconstruit `config['_runtime']['model_run_ids']` depuis la DB (rattachement par `model_name` au rôle déclaré : primary/secondary/replication). Appelée dans la branche `--resume` de l'orchestrateur. `steerer.run` ne retombe donc plus sur un model_run legacy quand un modèle primaire existe déjà en DB. Test `test_resume_restaure_model_run_ids`.
 
@@ -5597,3 +6064,26 @@ Durcissement de l'implémentation v6.6.0 de `steer_feature()` (chemin proxy open
 **Résidus documentaires.** Procédure : « Le README doit désormais pointer le papier v0.29 et la procédure v6.6.1 » ; commentaire YAML `steering.run_in_pipeline` reformulé (steer_feature implémenté pour le chemin proxy open-weight, Phase 4 désactivée tant que `assert_steering_ready` non validé en dev run **et** que le scoring causal reste contractuel) ; structure projet complétée (`utils/model_provider.py`, `utils/model_policy.py`, `tests/test_model_providers.py`, `tests/test_model_run_propagation.py`, `tests/test_steer_feature.py`, `api_utils.py` annoté legacy).
 
 **Réserves inchangées.** Phase 4 non activée automatiquement (`steering.run_in_pipeline=false`) et non validée scientifiquement. `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`) : aucun résultat causal n'est produit. `sae_latent_clamp` et le chemin nnsight / modèle de production restent non implémentés (erreurs explicites). Les claims scientifiques du papier (v0.29) sont inchangés. Limites restantes : pas d'exécution réelle en CI standard (test d'intégration opt-in) ; dépendance aux versions exactes de TransformerLens / SAE Lens (désormais atténuée par l'introspection, avec erreurs explicites si l'API attendue diffère).
+
+---
+
+## 26. Changelog v6.6.1 → v6.7.0
+
+Extension fonctionnelle du scoring causal : **implémentation réelle de `causal_scorer._load_pairs()`**. **Aucun changement de schéma** (la colonne `metrics.model_run_id` existante est désormais renseignée). Couche multi-modèle et `steer_feature()` v6.6.1 inchangées. Le papier v0.29 et ses claims ne sont pas modifiés.
+
+**`_load_pairs()` implémenté (métrique primaire déterministe).** Signature étendue : `_load_pairs(run_id, method, config=None, model_run_id=None, split="random")`. Pour chaque `feature_uid` et chaque propriété ROBUSTE, assemble un couple `{feature_uid, model_run_id, property, predicted, observed, method, n_observations, metadata}` :
+- **predicted** ← `agent_outputs` (agent prédicteur de la méthode), via `_extract_predicted_directions` qui accepte trois formats (`predictions:[…]`, `properties:{prop:"DIR"}`, `properties:{prop:{"direction":…}}`), normalise les alias (`increase/up/more`→INCREASE, etc.) et **rejette** les directions ambiguës (`UNKNOWN`, `null`, vide, non reconnue) sans les convertir en `NO_CHANGE` ;
+- **observed** ← classifieurs déterministes appliqués aux paires `text_before/text_after` de `steering_results` à la **magnitude primaire** (`_primary_magnitude_key`), via `_observe_property_direction` (aucune pseudo-observation ; direction invalide du classifieur → erreur, jamais `NO_CHANGE` silencieux) ;
+- **aucun juge LLM** dans le primaire ; `negative_valence` (semi-robuste) est exclu (`CLASSIFIER_BY_PROPERTY` ne contient que négation, temps, code, modalité conditionnelle).
+
+**Strictement model-aware / split-aware / OOD-aware.** Sélection du modèle : `model_run_id` explicite → `config["_runtime"]["model_run_ids"]["primary"]` → `ensure_legacy_model_run(run_id)`. Toutes les requêtes (`agent_outputs`, `steering_results`) filtrent sur ce `model_run_id` et joignent `features` pour filtrer `split`. Les `steering_results` à `ood_flag=1` sont exclus si `exclude_ood_from_primary=true`. Seules les sondes neutres du primaire sont retenues (`probe_family='neutral'`, `probe_category IS NULL`).
+
+**Erreurs explicites (jamais de liste vide silencieuse).** Aucune prédiction → `RuntimeError("No predictor outputs found …")` ; aucune observation → `RuntimeError("No steering observations found … Did you run p4_steer first?")` ; features prédites sans observation → ignorées avec log d'audit (pas de score artificiel) ; aucun couple assemblé → `RuntimeError("No causal pairs assembled …")` ; méthode inconnue → `NotImplementedError`.
+
+**`run()` mis à jour.** Résout le `model_run_id` primaire et le `split` primaire, calcule `compute_global_macro_f1` + `feature_clustered_bootstrap` sur les couples MorphoRepr, et **persiste `metrics.model_run_id`** (le modèle primaire ; `NULL` réservé aux agrégats cross-modèles). Les fonctions de scoring (`compute_global_macro_f1`, `feature_clustered_bootstrap`, `paired_diff_bootstrap`) sont **inchangées**.
+
+**Baselines — Option A (par défaut).** Les comparaisons baselines (supériorité vs NL, non-infériorité vs Semantic Regexes) ne sont exécutées que si `causal_scoring.run_baseline_comparisons=true` (les prédictions baselines ne sont pas encore branchées dans le pipeline). Par défaut : **score MorphoRepr seul**, log explicite, **aucun verdict** de supériorité/non-infériorité (pas de faux `pass`/`fail`). Si activé sans prédictions baselines, `_load_pairs(base)` lève une `RuntimeError` explicite (Option B propre). Aucune prédiction baseline fabriquée.
+
+**Tests ajoutés** (`tests/test_causal_scorer.py`) : extraction des trois formats de prédiction + rejet des directions invalides ; `_observe_property_direction` (paires nulles ignorées, direction invalide → `ValueError`) ; `_primary_magnitude_key` (`rel:1.0` / `abs:5`) ; OOD exclu/inclus ; **model-aware** (le primaire ne charge jamais prédiction/observation du secondaire) ; **split-aware** ; absences explicites (no steering / no predictor / méthode inconnue) ; couple final assemblé ; `run()` minimal (macro-F1=1.0, `metrics.model_run_id` renseigné, baselines skippées sans verdict).
+
+**Statut.** `causal_scorer._load_pairs()` est implémenté pour MorphoRepr (**dev run causal minimal** possible). `run_intervention_controls()` reste un **contrat**. `causal_scoring.run_in_pipeline` reste `false` (non activé automatiquement) ; un dev run causal exige un run contrôlé disposant de prédictions et de steering. **Aucun full result scientifique n'est revendiqué** : pas de comparaison baseline par défaut, et la validation causale complète reste à établir. Limites restantes : prédictions baselines non branchées (Option A), `run_intervention_controls()` contractuel, pas d'exécution réelle en CI standard (dev causal opt-in), dépendance au chemin steer_feature proxy open-weight pour produire les observations.

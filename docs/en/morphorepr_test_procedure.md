@@ -1,7 +1,7 @@
-# MorphoRepr — Complete Test Procedure (v6.6.1)
+# MorphoRepr — Complete Test Procedure (v6.7.0)
 ## Robust Experimental Infrastructure for Reproducible Evaluation
 
-*Version 6.6.1 — June 2026. Consistent with the paper (≥ v0.29). Hardening of the v6.6.0 `steer_feature()` implementation for the open-weight proxy path (TransformerLens + SAE Lens): `_generate_text()` is adapted to variable `model.generate` signatures via introspection; shape, dtype, and `feature_index` validations now fail with explicit errors; the semantics of `activation_before/after` are clarified (Option A: measurement on the probe context); tests are strengthened (the hook is actually active during generation, dtype is preserved, robust opt-in slow test). No schema change relative to v6.5.3. The v6.6.0 philosophy is unchanged: Phase 4 remains disabled by default (`steering.run_in_pipeline=false`, never auto-enabled), is not scientifically validated, and `run_intervention_controls()` plus `causal_scorer._load_pairs()` remain explicit contracts (`NotImplementedError`). The v6.5.3 multi-model layer (`model_run_id`, `_load_encoded_random_features`) is preserved.*
+*Version 6.7.0 — June 2026. Consistent with paper (≥ v0.29). **Functional extension of causal scoring**: `causal_scorer._load_pairs()` is now actually implemented. It assembles prediction/observation pairs `(feature_uid, robust property)` for the deterministic primary metric, in a strictly **model-aware, split-aware, intervention-space-aware, and OOD-aware** manner, reading predictions from `agent_outputs` and applying deterministic classifiers to `text_before`/`text_after` from `steering_results` produced by the v6.6.x `steer_feature()` path. No LLM judge is used in the primary metric. This unlocks a **minimal causal dev run** for MorphoRepr. **No full scientific validation is claimed**: baseline comparisons are disabled by default (Option A: baseline predictions are not wired yet, so the MorphoRepr score is written alone, without superiority/non-inferiority verdict); `run_intervention_controls()` remains a contract; `causal_scoring.run_in_pipeline` remains `false` and is not automatically enabled. No schema change relative to v6.5.3: the existing `metrics.model_run_id` column is now populated for model-specific scores. The multi-model layer and `steer_feature()` v6.6.1 remain intact. See Section 26.*
 
 ---
 
@@ -64,12 +64,12 @@ A `feature_index` alone is not sufficient: the same index may exist in several l
 
 **Artifacts to archive for reproduction.** For every `model_run`: exact model and tokenizer revisions, `weights_sha256`, `tokenizer_sha256`, Docker/Conda image (`inference_env_hash`), CUDA version, backend version, `precision`/`quantization`, inference parameters (`generation_params_json`: temperature, top_p, seed, max_new_tokens), hashed prompts, and **raw outputs**. Without these artifacts, a run cannot claim reproducibility and cannot support a primary claim.
 
-**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.6.1**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
+**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.7.0**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
 
 ```markdown
 ## MorphoRepr — repository status
 - Paper: v0.29 (open-model policy; primary claims on an open model).
-- Test procedure: v6.6.1 (complete multi-model propagation, including Phase 4).
+- Test procedure: v6.7.0 (`steer_feature()` and `causal_scorer._load_pairs()` implemented for a minimal causal dev run; Phase 4 disabled by default).
 - Causal-validity criterion: superiority over natural-language labels (feature-clustered paired-difference CI excluding 0) AND non-inferiority to Semantic Regexes (pre-registered δ margin). The old “non-overlapping CIs” criterion is OBSOLETE.
 
 ## Reproducibility and open-weight models
@@ -232,7 +232,7 @@ steering:
   # a hausse of activation latente of the same facteur. On reports therefore the DELTA OBTENU
   # (achieved_delta), not only the target magnitude, and two modes are supported :
   intervention_space: "residual_add_decoder"  # "residual_add_decoder" | "sae_latent_clamp"
-  n_probe_sentences: 50              # metric PRIMAIRE (n_probe_sentences_pilot en dev/pilot)
+  n_probe_sentences: 50              # PRIMARY metric (n_probe_sentences_pilot en dev/pilot)
   n_probe_sentences_pilot: 20        # used if run_mode ∈ {dev, pilot} (cf. run_mode global)
   n_domain_probes_per_category: 20   # compatible probes by category de domain
   # PRIMAIRE deterministic : 1 generation + greedy decoding (temperature=0). Pour amortir the
@@ -2532,29 +2532,27 @@ def generate_shuffles(run_id: str, config: dict, n_repeats: Optional[int] = None
 
 ## 8 bis. Deterministic Causal Scorer (Primary Metric)
 
-Implements the metric PRIMAIRE (Rule 8) : **deterministic** comparison of the direction
-predictede (par l'agent de prediction, to partir de the alone expression) to the direction
-**observed** (measured by the classifiers pre-registered), aggregated en **macro-F1 GLOBAL on
-all the couples `(feature_uid, property robust)`** — and NON by feature puis averaged. Le
-bootstrap is **clustered by feature** (the resampling unit is `feature_uid`).
+This section implements the **primary deterministic causal metric** (Rule 8): the direction predicted by the prediction agent, based on the annotation alone, is compared in code with the direction observed by pre-registered deterministic classifiers. The score is a **global macro-F1 over all `(feature_uid, robust property)` pairs**, not a per-feature score averaged afterward. Bootstrap confidence intervals are **feature-clustered**, with `feature_uid` as the resampling unit.
+
+In v6.7.0, `_load_pairs()` is no longer a contract for `method="morphorepr"`: it reads prediction outputs from `agent_outputs`, reads steering observations from `steering_results`, applies the deterministic robust-property classifiers to `text_before` / `text_after`, and assembles strict model/split/intervention-space/OOD-aware pairs. Baseline methods remain Option A by default: they are not fabricated, and comparisons are skipped unless baseline prediction outputs are explicitly wired.
 
 ```python
 # agents/causal_scorer.py
 """
-Score causal DETERMINISTIC (metric primary). Aucun juge LLM here (Rule 8).
+Deterministic causal scorer (primary metric). No LLM judge is used here (Rule 8).
 
 Logical input: a list of pairs {feature_uid, property, predicted, observed}
-restreinte aux properties ROBUSTES, where predicted/observed ∈ {INCREASE, DECREASE, NO_CHANGE}.
- - predicted : direction predictede par l'agent de prediction (agent_outputs 'predictor').
- - observed  : direction measured by the property classifier (deterministic).
-Macro-F1 is computed GLOBALEMENT sur the set pairs (not by feature).
+restricted to ROBUST_PROPERTIES, where predicted/observed ∈ {INCREASE, DECREASE, NO_CHANGE}.
+ - predicted: direction predicted by the prediction agent.
+ - observed: direction measured by the deterministic property classifier.
+The macro-F1 is computed globally over all pairs, not per feature.
 """
 import json
 import logging
 import random
 from uuid import uuid4
 from datetime import datetime
-from utils.db_utils import get_conn
+from utils.db_utils import get_conn, ensure_legacy_model_run
 
 logger = logging.getLogger(__name__)
 
@@ -2562,10 +2560,25 @@ DIRECTIONS = ["INCREASE", "DECREASE", "NO_CHANGE"]
 ROBUST_PROPERTIES = ["negation_presence", "tense", "code_presence", "conditional_modality"]
 
 
+ACCEPTED_PREDICTOR_AGENTS = {
+    "morphorepr":          ["predictor", "predictor_morphorepr"],
+    "nl_labels":           ["predictor_nl_labels"],
+    "semantic_regex":      ["predictor_semantic_regex"],
+    "keyword_tags":        ["predictor_keyword_tags"],
+    "morphorepr_shuffled": ["predictor_morphorepr_shuffled"],
+}
+
+CLASSIFIER_BY_PROPERTY = None
+
+_DIRECTION_ALIASES = {
+    "increase": "INCREASE", "up": "INCREASE", "more": "INCREASE", "INCREASE": "INCREASE",
+    "decrease": "DECREASE", "down": "DECREASE", "less": "DECREASE", "DECREASE": "DECREASE",
+    "no_change": "NO_CHANGE", "unchanged": "NO_CHANGE", "none": "NO_CHANGE", "NO_CHANGE": "NO_CHANGE",
+}
+
+
 def compute_global_macro_f1(pairs: list[dict]) -> dict:
-    """Macro-F1 GLOBAL on all the couples (feature, property). `pairs` : liste de
-    {'predicted': dir, 'observed': dir}. Macro-F1 averages the F1 of PRESENT classes
-    in the observed directions (truth ground truth)."""
+    """Global macro-F1 over all (feature, property) pairs."""
     confusion = {a: {b: 0 for b in DIRECTIONS} for a in DIRECTIONS}
     for p in pairs:
         confusion[p["observed"]][p["predicted"]] += 1
@@ -2578,23 +2591,17 @@ def compute_global_macro_f1(pairs: list[dict]) -> dict:
         rec  = tp / (tp + fn) if (tp + fn) else 0.0
         f1   = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
         per_class[d] = {"precision": round(prec, 4), "recall": round(rec, 4), "f1": round(f1, 4)}
-        if (tp + fn) > 0:                     # classe present in the truth ground truth
+        if (tp + fn) > 0:
             f1s.append(f1)
     n = len(pairs) or 1
     accuracy = sum(confusion[d][d] for d in DIRECTIONS) / n
-    return {
-        "macro_f1": round(sum(f1s) / len(f1s), 4) if f1s else 0.0,
-        "accuracy": round(accuracy, 4),
-        "n_pairs": len(pairs),
-        "per_class": per_class,
-    }
+    return {"macro_f1": round(sum(f1s) / len(f1s), 4) if f1s else 0.0,
+            "accuracy": round(accuracy, 4), "n_pairs": len(pairs), "per_class": per_class}
 
 
 def feature_clustered_bootstrap(pairs: list[dict], n_resamples: int = 10000,
                                 seed: int = 42, alpha: float = 0.05) -> dict:
-    """IC bootstrap of the macro-F1 global, CLUSTERED by feature_uid : we resample
-    FEATURES (with replacement), not pairs individuels (la dependency intra-feature
-    is thereby respected)."""
+    """Bootstrap CI for global macro-F1, clustered by feature_uid."""
     by_feat: dict[str, list[dict]] = {}
     for p in pairs:
         by_feat.setdefault(p["feature_uid"], []).append(p)
@@ -2602,7 +2609,7 @@ def feature_clustered_bootstrap(pairs: list[dict], n_resamples: int = 10000,
     rng  = random.Random(seed)
     stats = []
     for _ in range(n_resamples):
-        sample_uids = [rng.choice(uids) for _ in uids]      # clusters with replacement
+        sample_uids = [rng.choice(uids) for _ in uids]
         resampled = [pair for u in sample_uids for pair in by_feat[u]]
         stats.append(compute_global_macro_f1(resampled)["macro_f1"])
     stats.sort()
@@ -2614,13 +2621,12 @@ def feature_clustered_bootstrap(pairs: list[dict], n_resamples: int = 10000,
 def paired_diff_bootstrap(pairs_a: list[dict], pairs_b: list[dict],
                           n_resamples: int = 10000, seed: int = 42,
                           alpha: float = 0.05) -> dict:
-    """Paired macro-F1 difference (method A − method B) with resampling
-    of the SAME features for both methods (paired, clustered comparison)."""
+    """Paired macro-F1 difference (A − B), clustered by shared features."""
     a = {p["feature_uid"]: [] for p in pairs_a}
     b = {p["feature_uid"]: [] for p in pairs_b}
     for p in pairs_a: a[p["feature_uid"]].append(p)
     for p in pairs_b: b[p["feature_uid"]].append(p)
-    uids = sorted(set(a) & set(b))            # SHARED feature set
+    uids = sorted(set(a) & set(b))
     rng  = random.Random(seed)
     diffs = []
     for _ in range(n_resamples):
@@ -2636,50 +2642,251 @@ def paired_diff_bootstrap(pairs_a: list[dict], pairs_b: list[dict],
             "n_shared_features": len(uids)}
 
 
-def _load_pairs(run_id: str, method: str) -> list[dict]:
-    """Assemble the couples (feature_uid, property robust) {predicted, observed} for a
-    method d'annotation. Contrat : predicted vient de l'agent 'predictor_{method}', observed
-    from classifiers (stored in metrics/steering). Restricted to ROBUST_PROPERTIES."""
-    raise NotImplementedError(
-        "_load_pairs() : wire reading of predicted directions (agent_outputs "
-        f"'predictor_{method}') et observed (classifiers) en couples robustes. "
-        "Les functions de scoring above sont, elles, complete et tested."
-    )
+def _default_classifier_map() -> dict:
+    """Lazy import of robust-property classifiers. negative_valence is excluded from the primary metric."""
+    import classifiers.negation, classifiers.tense, classifiers.code_presence, classifiers.modality
+    return {
+        "negation_presence":    classifiers.negation.measure,
+        "tense":                classifiers.tense.measure,
+        "code_presence":        classifiers.code_presence.measure,
+        "conditional_modality": classifiers.modality.measure,
+    }
+
+
+def _normalize_direction(value) -> str | None:
+    """Normalize a direction alias. Ambiguous values are rejected, never silently mapped to NO_CHANGE."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    if not v:
+        return None
+    return _DIRECTION_ALIASES.get(v) or _DIRECTION_ALIASES.get(v.lower())
+
+
+def _extract_predicted_directions(output_json) -> dict[str, str]:
+    """Extract {property: DIRECTION} from the three accepted predictor-output formats."""
+    if isinstance(output_json, str):
+        output_json = json.loads(output_json)
+    out: dict[str, str] = {}
+    if not isinstance(output_json, dict):
+        return out
+
+    preds = output_json.get("predictions")
+    if isinstance(preds, list):
+        for item in preds:
+            if not isinstance(item, dict):
+                continue
+            prop = item.get("property")
+            d = _normalize_direction(item.get("direction"))
+            if prop in ROBUST_PROPERTIES and d:
+                out[prop] = d
+
+    props = output_json.get("properties")
+    if isinstance(props, dict):
+        for prop, val in props.items():
+            d = _normalize_direction(val.get("direction")) if isinstance(val, dict) else _normalize_direction(val)
+            if prop in ROBUST_PROPERTIES and d:
+                out[prop] = d
+    return out
+
+
+def _primary_magnitude_key(config: dict) -> str:
+    """Text key for the primary steering magnitude, aligned with steerer._run_steering_batch."""
+    st = config.get("steering", {})
+    if st.get("magnitude_mode", "p99_relative") == "absolute":
+        return f"abs:{st.get('legacy_absolute_magnitude', 5)}"
+    return f"rel:{st.get('primary_magnitude_rel', 1.0)}"
+
+
+def _observe_property_direction(rows: list[dict], property_name: str, classifier_fn) -> dict | None:
+    """Apply a deterministic classifier to valid before/after text pairs."""
+    before = [r["text_before"] for r in rows if r.get("text_before") and r.get("text_after")]
+    after  = [r["text_after"]  for r in rows if r.get("text_before") and r.get("text_after")]
+    if not before:
+        return None
+    measured = classifier_fn(before, after)
+    d = _normalize_direction(measured.get("direction"))
+    if not d:
+        raise ValueError(f"Classifier for {property_name} returned an invalid direction: {measured!r}")
+    return {"property": property_name, "direction": d,
+            "n_observations": len(before), "details": measured}
+
+
+def _resolve_model_run_id(run_id: str, config: dict | None, model_run_id: str | None) -> str:
+    if model_run_id:
+        return model_run_id
+    if config:
+        primary = config.get("_runtime", {}).get("model_run_ids", {}).get("primary")
+        if primary:
+            return primary
+    return ensure_legacy_model_run(run_id)
+
+
+def _load_pairs(run_id: str,
+                method: str,
+                config: dict | None = None,
+                model_run_id: str | None = None,
+                split: str = "random") -> list[dict]:
+    """Assemble deterministic prediction/observation pairs for one method.
+
+    For v6.7.0, `method="morphorepr"` is implemented. Baseline methods are intentionally
+    not fabricated: if baseline prediction outputs are not present, a clear RuntimeError is
+    raised when comparisons are explicitly enabled.
+    """
+    config = config or {}
+    if method not in ACCEPTED_PREDICTOR_AGENTS:
+        raise NotImplementedError(f"Unknown or unsupported causal-scoring method: {method!r}")
+
+    mrid = _resolve_model_run_id(run_id, config, model_run_id)
+    magnitude_key = _primary_magnitude_key(config)
+    st = config.get("steering", {})
+    probe_family = st.get("primary_probe_family", "neutral")
+    exclude_ood = st.get("exclude_ood_from_primary", True)
+    intervention_space = st.get("intervention_space", "residual_add_decoder")
+
+    agent_names = ACCEPTED_PREDICTOR_AGENTS[method]
+    placeholders = ",".join("?" for _ in agent_names)
+
+    with get_conn() as conn:
+        pred_rows = conn.execute(f"""
+            SELECT ao.feature_uid, ao.feature_index, ao.output_json
+            FROM agent_outputs ao
+            JOIN features f ON f.feature_uid = ao.feature_uid
+            WHERE ao.run_id = ?
+              AND ao.model_run_id = ?
+              AND ao.agent_name IN ({placeholders})
+              AND ao.status = 'ok'
+              AND f.split = ?
+        """, (run_id, mrid, *agent_names, split)).fetchall()
+
+        if not pred_rows:
+            raise RuntimeError(
+                f"No predictor outputs found for method={method}, run_id={run_id}, "
+                f"model_run_id={mrid}, split={split}."
+            )
+
+        q = """
+            SELECT sr.*
+            FROM steering_results sr
+            JOIN features f ON f.feature_uid = sr.feature_uid
+            WHERE sr.run_id = ?
+              AND sr.model_run_id = ?
+              AND sr.intervention_space = ?
+              AND sr.magnitude_key = ?
+              AND sr.probe_family = ?
+              AND sr.probe_category IS NULL
+              AND sr.text_after IS NOT NULL
+              AND f.split = ?
+        """
+        params = [run_id, mrid, intervention_space, magnitude_key, probe_family, split]
+        if exclude_ood:
+            q += " AND COALESCE(sr.ood_flag, 0) = 0"
+        obs_rows = conn.execute(q, params).fetchall()
+
+    if not obs_rows:
+        raise RuntimeError(
+            f"No steering observations found for run_id={run_id}, model_run_id={mrid}, "
+            f"split={split}, magnitude_key={magnitude_key}, intervention_space={intervention_space}. "
+            f"Did you run p4_steer first?"
+        )
+
+    predictions: dict[str, dict[str, str]] = {}
+    for r in pred_rows:
+        dirs = _extract_predicted_directions(r["output_json"])
+        robust = {p: d for p, d in dirs.items() if p in ROBUST_PROPERTIES}
+        if robust:
+            predictions[r["feature_uid"]] = robust
+
+    by_feature: dict[str, list[dict]] = {}
+    for r in obs_rows:
+        by_feature.setdefault(r["feature_uid"], []).append(dict(r))
+
+    classifier_map = CLASSIFIER_BY_PROPERTY or _default_classifier_map()
+    pairs: list[dict] = []
+    for feature_uid, pred_by_prop in predictions.items():
+        rows = by_feature.get(feature_uid)
+        if not rows:
+            logger.info("Skipping %s: predictions exist but no steering observations", feature_uid)
+            continue
+        for prop, predicted in pred_by_prop.items():
+            if prop not in ROBUST_PROPERTIES:
+                continue
+            classifier_fn = classifier_map.get(prop)
+            if classifier_fn is None:
+                raise RuntimeError(f"No deterministic classifier registered for robust property {prop!r}")
+            observed = _observe_property_direction(rows, prop, classifier_fn)
+            if observed is None:
+                continue
+            pairs.append({
+                "feature_uid": feature_uid,
+                "model_run_id": mrid,
+                "property": prop,
+                "predicted": predicted,
+                "observed": observed["direction"],
+                "method": method,
+                "n_observations": observed["n_observations"],
+                "metadata": {
+                    "split": split,
+                    "magnitude_key": magnitude_key,
+                    "intervention_space": intervention_space,
+                    "exclude_ood_from_primary": exclude_ood,
+                    "classifier_details": observed.get("details", {}),
+                },
+            })
+
+    if not pairs:
+        raise RuntimeError(
+            f"No causal pairs assembled for method={method}, run_id={run_id}, "
+            f"model_run_id={mrid}, split={split}."
+        )
+    return pairs
 
 
 def run(run_id: str, config: dict):
-    """Metric primary : macro-F1 global on couples + bootstrap clustered by feature,
-    et differences paired vs baselines (superiority vs NL ; non-inferiority vs Semantic
-    Regexes with margin nim_delta). Persist everything in metrics."""
-    nim = config["thresholds"].get("nim_delta", 0.05)
-    mr = _load_pairs(run_id, "morphorepr")          # raises NotImplementedError as long as not wired
+    """Primary deterministic causal score: MorphoRepr macro-F1 + feature-clustered bootstrap.
+
+    Baseline comparisons are gated by causal_scoring.run_baseline_comparisons. Option A is the
+    default: if baselines are not wired, the MorphoRepr score is written without any superiority
+    or non-inferiority verdict.
+    """
+    split = config.get("primary_split", "random")
+    model_run_id = _resolve_model_run_id(run_id, config, None)
+    n_boot = config["stats"].get("bootstrap_resamples", 10000)
+
+    mr = _load_pairs(run_id, "morphorepr", config=config, model_run_id=model_run_id, split=split)
     point = compute_global_macro_f1(mr)
-    ci    = feature_clustered_bootstrap(mr, config["stats"].get("bootstrap_resamples", 10000),
-                                        config.get("seed", 42))
+    ci = feature_clustered_bootstrap(mr, n_boot, config.get("seed", 42))
     results = {"morphorepr": {**point, **ci}, "comparisons": {}}
-    for base in config["stats"].get("superiority_vs", []) + config["stats"].get("non_inferiority_vs", []):
-        d = paired_diff_bootstrap(mr, _load_pairs(run_id, base),
-                                  config["stats"].get("bootstrap_resamples", 10000),
-                                  config.get("seed", 42))
-        mode = "non_inferiority" if base in config["stats"].get("non_inferiority_vs", []) else "superiority"
-        d["verdict"] = (("pass" if d["ci_low"] > -nim else "fail") if mode == "non_inferiority"
-                        else ("pass" if d["ci_low"] > 0 else "fail"))
-        results["comparisons"][base] = {"mode": mode, **d}
+
     with get_conn() as conn:
-        conn.execute("""INSERT INTO metrics (metric_id, run_id, phase, split, metric_name,
-                        value, ci_low, ci_high, n_samples, baseline, computed_at)
-                        VALUES (?, ?, 'p4_score', 'random', 'causal_macro_f1_global',
-                                ?, ?, ?, ?, NULL, ?)""",
-                     (str(uuid4()), run_id, point["macro_f1"], ci["ci_low"], ci["ci_high"],
-                      point["n_pairs"], datetime.utcnow().isoformat()))
-        for base, d in results["comparisons"].items():
-            conn.execute("""INSERT INTO metrics (metric_id, run_id, phase, split, metric_name,
-                            value, ci_low, ci_high, n_samples, baseline, computed_at)
-                            VALUES (?, ?, 'p4_score', 'random', 'causal_macro_f1_paired_diff',
-                                    ?, ?, ?, ?, ?, ?)""",
-                         (str(uuid4()), run_id, d["diff"], d["ci_low"], d["ci_high"],
-                          d["n_shared_features"], base, datetime.utcnow().isoformat()))
-    logger.info(f"Score causal global : macro-F1={point['macro_f1']} IC95={ci}")
+        conn.execute("""
+            INSERT INTO metrics (metric_id, run_id, model_run_id, phase, split, metric_name,
+                                 value, ci_low, ci_high, n_samples, baseline, computed_at)
+            VALUES (?, ?, ?, 'p4_score', ?, 'causal_macro_f1_global', ?, ?, ?, ?, NULL, ?)
+        """, (str(uuid4()), run_id, model_run_id, split, point["macro_f1"],
+              ci["ci_low"], ci["ci_high"], point["n_pairs"], datetime.utcnow().isoformat()))
+
+    if config.get("causal_scoring", {}).get("run_baseline_comparisons", False):
+        nim = config["thresholds"].get("nim_delta", 0.05)
+        for base in config["stats"].get("superiority_vs", []) + config["stats"].get("non_inferiority_vs", []):
+            base_pairs = _load_pairs(run_id, base, config=config, model_run_id=model_run_id, split=split)
+            d = paired_diff_bootstrap(mr, base_pairs, n_boot, config.get("seed", 42))
+            mode = "non_inferiority" if base in config["stats"].get("non_inferiority_vs", []) else "superiority"
+            d["verdict"] = (("pass" if d["ci_low"] > -nim else "fail") if mode == "non_inferiority"
+                            else ("pass" if d["ci_low"] > 0 else "fail"))
+            results["comparisons"][base] = {"mode": mode, **d}
+            with get_conn() as conn:
+                conn.execute("""
+                    INSERT INTO metrics (metric_id, run_id, model_run_id, phase, split, metric_name,
+                                         value, ci_low, ci_high, n_samples, baseline, computed_at)
+                    VALUES (?, ?, ?, 'p4_score', ?, 'causal_macro_f1_paired_diff', ?, ?, ?, ?, ?, ?)
+                """, (str(uuid4()), run_id, model_run_id, split, d["diff"], d["ci_low"],
+                      d["ci_high"], d["n_shared_features"], base, datetime.utcnow().isoformat()))
+    else:
+        logger.warning("Baseline comparisons disabled (causal_scoring.run_baseline_comparisons=false). "
+                       "Writing MorphoRepr score only, without superiority/non-inferiority verdict.")
+
+    logger.info("Global causal score: macro-F1=%s CI95=%s", point["macro_f1"], ci)
     return results
 ```
 
@@ -4010,7 +4217,7 @@ Main changes:
 - Tests are added or extended for dtype preservation, unsupported generation kwargs, shape errors, tuple encode outputs, and opt-in slow integration.
 - The steering section is now described as an open-weight proxy implementation with remaining contracts, rather than as a pure implementation contract.
 - v6.6.0-specific wording is replaced by the broader v6.6.x objective.
-- The integrated README points to paper v0.29 and test procedure v6.6.1.
+- The integrated README points to paper v0.29 and test procedure v6.7.0.
 
 Still not implemented:
 
@@ -4038,10 +4245,38 @@ pytest tests/test_steer_feature.py -v
 MORPHOREPR_RUN_SLOW_STEERING=1 pytest tests/test_steer_feature.py -v -k slow
 ```
 
-## Current v6.6.1 status summary
+## 26. Changelog v6.6.1 → v6.7.0
 
-`steer_feature()` is now considered stable for a controlled dev run on the open-weight proxy path. It is not a full Phase 4 validation. The next major implementation task is `causal_scorer._load_pairs()`, which must connect:
+Functional extension: **real implementation of `causal_scorer._load_pairs()` for the deterministic primary score**. No SQLite schema change. The multi-model layer and the v6.6.1 `steer_feature()` implementation remain unchanged.
 
-1. predictor outputs;
-2. observed classifier directions measured on `steering_results`;
-3. global `(feature_uid, property)` pairs for deterministic macro-F1 scoring.
+**`_load_pairs()` implemented for `method="morphorepr"`.** The function now reads predictor outputs from `agent_outputs`, normalizes predicted directions, reads steering observations from `steering_results`, applies deterministic robust-property classifiers to `text_before` / `text_after`, and assembles `(feature_uid, robust property)` prediction/observation pairs for the primary global macro-F1. It is strictly filtered by `run_id`, `model_run_id`, `split`, primary `magnitude_key`, primary probe family, and `intervention_space`.
+
+**No LLM judge in the primary metric.** The observed directions are produced by pre-registered deterministic classifiers (`negation_presence`, `tense`, `code_presence`, `conditional_modality`). `negative_valence` remains semi-robust and is excluded from the primary score.
+
+**Prediction normalization.** `_extract_predicted_directions()` accepts three explicit formats: `predictions[]`, `properties: {prop: direction}`, and `properties: {prop: {direction: ...}}`. Direction aliases such as `increase`, `up`, `decrease`, `down`, `no_change`, and `unchanged` are normalized. Ambiguous directions such as `UNKNOWN`, `null`, or an empty string are rejected rather than silently mapped to `NO_CHANGE`.
+
+**Observation assembly.** `_observe_property_direction()` collects valid `text_before` / `text_after` pairs and applies the classifier. A pair is created only if both prediction and observation exist for a robust property. Missing predictions, missing steering observations, and empty final pair sets raise explicit errors instead of returning a silent empty list.
+
+**OOD, split, model, and intervention-space safety.** OOD rows are excluded from the primary metric when `exclude_ood_from_primary=true`. The query is split-aware and model-aware, and now also filters `sr.intervention_space = config["steering"].get("intervention_space", "residual_add_decoder")`, avoiding future contamination if additional intervention spaces are implemented later.
+
+**`run()` updated.** `run()` resolves the primary `model_run_id`, computes MorphoRepr global macro-F1 and a feature-clustered bootstrap, and writes `metrics.model_run_id` for model-specific scores. `NULL` remains reserved for cross-model aggregate metrics.
+
+**Baseline policy: Option A.** Baseline comparisons are disabled by default through `causal_scoring.run_baseline_comparisons=false`. The MorphoRepr score is written alone, without superiority or non-inferiority verdict. If baseline comparisons are explicitly enabled without baseline prediction outputs, `_load_pairs(base)` fails loudly; no fake baseline predictions are produced.
+
+**Tests added/extended.** `tests/test_causal_scorer.py` covers prediction extraction, direction normalization, rejection of invalid directions, deterministic observation, `_primary_magnitude_key()`, OOD filtering, model-aware and split-aware selection, intervention-space filtering, missing predictor/steering errors, final pair assembly, and a minimal `run()` writing `causal_macro_f1_global` with `metrics.model_run_id` populated while skipping baselines.
+
+**Remaining limits.** Baseline predictions are not wired yet; no superiority/non-inferiority verdict is produced. `run_intervention_controls()` remains a contract. `causal_scoring.run_in_pipeline=false` remains the default. A full scientific causal validation is not claimed, and paper v0.29 scientific claims remain unchanged.
+
+Recommended test commands:
+
+```bash
+pytest tests/test_causal_scorer.py -v
+pytest tests/test_steer_feature.py tests/test_causal_scorer.py -v
+
+# Optional dev causal integration test if implemented:
+MORPHOREPR_RUN_DEV_CAUSAL=1 pytest tests/test_pipeline_e2e.py -v -k causal
+```
+
+## Current v6.7.0 status summary
+
+`steer_feature()` is implemented for the open-weight proxy path, and `causal_scorer._load_pairs()` is implemented for a minimal MorphoRepr causal dev score. The pipeline still does not claim full causal validation: baseline comparisons remain off by default, `run_intervention_controls()` is not implemented, and Phase 4 remains disabled in the default pipeline configuration. The next major tasks are wiring baseline prediction outputs (Option B) and implementing intervention controls.
