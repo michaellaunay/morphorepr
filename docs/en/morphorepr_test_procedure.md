@@ -1,7 +1,7 @@
-# MorphoRepr — Complete Test Procedure (v6.5.3)
+# MorphoRepr — Complete Test Procedure (v6.6.1)
 ## Robust Experimental Infrastructure for Reproducible Evaluation
 
-*Version 6.5.3 — June 2026. Consistent with article v0.29 and later. Patch for the final multi-model leak in Phase 4: `steerer.run()` is now strictly model-aware; the query that loads `encoder` outputs filters on `ao.model_run_id` (see Section 23). No schema change relative to v6.5.2. Compatible with v6.5.x: `AnthropicProvider` is preserved and Phase 4 remains disabled by default. v6.5.3 remains a SPECIFICATION: `steer_feature()`, `run_intervention_controls()`, and `causal_scorer._load_pairs()` are non-implemented contracts protected by `run_in_pipeline` guards.*
+*Version 6.6.1 — June 2026. Consistent with the paper (≥ v0.29). Hardening of the v6.6.0 `steer_feature()` implementation for the open-weight proxy path (TransformerLens + SAE Lens): `_generate_text()` is adapted to variable `model.generate` signatures via introspection; shape, dtype, and `feature_index` validations now fail with explicit errors; the semantics of `activation_before/after` are clarified (Option A: measurement on the probe context); tests are strengthened (the hook is actually active during generation, dtype is preserved, robust opt-in slow test). No schema change relative to v6.5.3. The v6.6.0 philosophy is unchanged: Phase 4 remains disabled by default (`steering.run_in_pipeline=false`, never auto-enabled), is not scientifically validated, and `run_intervention_controls()` plus `causal_scorer._load_pairs()` remain explicit contracts (`NotImplementedError`). The v6.5.3 multi-model layer (`model_run_id`, `_load_encoded_random_features`) is preserved.*
 
 ---
 
@@ -64,12 +64,12 @@ A `feature_index` alone is not sufficient: the same index may exist in several l
 
 **Artifacts to archive for reproduction.** For every `model_run`: exact model and tokenizer revisions, `weights_sha256`, `tokenizer_sha256`, Docker/Conda image (`inference_env_hash`), CUDA version, backend version, `precision`/`quantization`, inference parameters (`generation_params_json`: temperature, top_p, seed, max_new_tokens), hashed prompts, and **raw outputs**. Without these artifacts, a run cannot claim reproducibility and cannot support a primary claim.
 
-**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.5.3**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
+**README section to update.** The README should now point to paper **v0.29** and test procedure **v6.6.1**, and remove obsolete references to the v0.26 paper and to the old “non-overlapping CIs” go/no-go criterion.
 
 ```markdown
 ## MorphoRepr — repository status
 - Paper: v0.29 (open-model policy; primary claims on an open model).
-- Test procedure: v6.5.3 (complete multi-model propagation, including Phase 4).
+- Test procedure: v6.6.1 (complete multi-model propagation, including Phase 4).
 - Causal-validity criterion: superiority over natural-language labels (feature-clustered paired-difference CI excluding 0) AND non-inferiority to Semantic Regexes (pre-registered δ margin). The old “non-overlapping CIs” criterion is OBSOLETE.
 
 ## Reproducibility and open-weight models
@@ -1915,15 +1915,14 @@ if __name__ == "__main__":
 
 ---
 
-## 7. Steering Agent — Implementation Contract (v6)
+## 7. Steering Agent — Open-Weight Proxy Implementation and Remaining Contracts
 
 ```python
 # agents/steerer.py
 """
 Phase 4 — Steering d'activation SAE (CONTRAT IMPLEMENTATION v6).
 
-Cette section is un CONTRAT : steer_feature() contains placeholders and raises
-NotImplementedError. The pilot run is blocked as long as assert_steering_ready() fails
+Cette section is un CONTRAT : steer_feature() is implemented for the open-weight proxy path (TransformerLens + SAE Lens, residual_add_decoder). The nnsight / production-model path and the sae_latent_clamp intervention space still raise explicit NotImplementedError. The pilot run remains blocked until assert_steering_ready() passes
 (Rule 9).
 
 Intervention specification (v6) :
@@ -3935,7 +3934,7 @@ Final propagation patch for multi-model execution. No schema change.
 
 **Resume restores model-run IDs.** Added `restore_model_run_ids(run_id, config)` to rebuild `config["_runtime"]["model_run_ids"]` from the database on `--resume`, preventing later phases from falling back to the legacy model when a primary model already exists.
 
-**YAML description.** Updated to `Full frozen run MorphoRepr v0.29 / procedure v6.5.2 — 500 features` in that patch, later bumped to v6.5.3.
+**YAML description.** Updated to `Full frozen run MorphoRepr v0.29 / procedure v6.5.2 — 500 features` in that patch, later bumped to v6.6.1.
 
 ---
 
@@ -3947,6 +3946,102 @@ Patch for the **last multi-model leak in Phase 4**. No schema change.
 
 **Test.** `test_steering_charge_uniquement_le_modele_primaire`: two `model_run_id`s in the same run, two `encoder` outputs for the same `feature_uid` with different expressions; the steering loader retrieves only the primary annotation, and symmetrically the secondary model sees only its own. No secondary or legacy output is steerable under the primary `model_run_id`.
 
-**Documentation residues.** Integrated README: “Test procedure: v6.5.3”. The v6.5.1 changelog is framed historically, and the paper now refers to “test procedure v6.5.x (≥ v6.5.3)”.
+**Documentation residues.** Integrated README: “Test procedure: v6.6.1”. The v6.5.1 changelog is framed historically, and the paper now refers to “test procedure v6.5.x / v6.6.x (≥ v6.6.1)”.
 
 **Phase 4 remains contractual.** `steer_feature()`, `run_intervention_controls()` and `causal_scorer._load_pairs()` remain **contracts** (`NotImplementedError`) behind `run_in_pipeline` flags. This patch makes the *loading* side of steering model-aware, but Phase 4 is not executable until `steer_feature()` is implemented.
+
+
+---
+
+## 24. Changelog v6.5.3 → v6.6.0
+
+Version 6.6.0 turns `steer_feature()` from a pure contract into a real implementation for the open-weight proxy path. This is a functional extension, not a schema change. The SQLite schema remains unchanged from v6.5.3, and the multi-model reproducibility layer (`model_runs`, `model_run_id`, model-aware batch recovery, and model-aware Phase 4 loading) is preserved.
+
+Main changes:
+
+- `steer_feature()` is implemented for the TransformerLens + SAE Lens proxy path when `proxy_model.enabled=true`.
+- The primary intervention space is `residual_add_decoder`: the hook adds `magnitude * sae.W_dec[feature_index]` to the residual stream at the selected token positions.
+- For every probe, the function now returns real `text_before`, `text_after`, `activation_before`, `activation_after`, `achieved_delta`, and `ood_flag`.
+- `text_before` and `text_after` are generated continuations, not placeholders.
+- `activation_before/after` are measured through a forward pass, residual capture at the SAE hook, SAE encoding, and feature-activation aggregation.
+- `achieved_delta = activation_after - activation_before` is reported because adding a decoder direction does not guarantee a target latent-activation increase.
+- The production/nnsight path remains explicit `NotImplementedError`.
+- `sae_latent_clamp` remains explicit `NotImplementedError`, with the intended future implementation described but not simulated.
+- Phase 4 remains disabled by default (`steering.run_in_pipeline=false`).
+- `run_intervention_controls()` and `causal_scorer._load_pairs()` remain explicit contracts.
+- No causal scientific result is claimed in this version.
+
+New helper functions in `agents/steerer.py`:
+
+- `_get_hook_name_from_sae()`
+- `_tokens_from_prompt()`
+- `_position_indices()`
+- `_selected_token_positions()`
+- `_aggregate_feature_activation()`
+- `_make_residual_add_decoder_hook()`
+- `_measure_feature_activation()`
+- `_generate_text()`
+
+Tests added in `tests/test_steer_feature.py`:
+
+- required fields and non-placeholder outputs;
+- achieved-delta computation;
+- OOD flagging;
+- explicit `NotImplementedError` for unsupported modes;
+- token-position selection (`all`, `last`, `content_only`);
+- residual hook behavior;
+- `assert_steering_ready()` with mocks;
+- optional slow integration test guarded by `MORPHOREPR_RUN_SLOW_STEERING=1`.
+
+## 25. Changelog v6.6.0 → v6.6.1
+
+Version 6.6.1 hardens the `steer_feature()` implementation without changing the schema or the scientific claims of paper v0.29. It is a robustness and documentation cleanup release for the open-weight proxy steering path.
+
+Main changes:
+
+- `_generate_text()` no longer assumes a single TransformerLens `model.generate` signature.
+- Generation keyword arguments are filtered through `inspect.signature`; unsupported kwargs such as `do_sample`, `top_p`, or `verbose` are not passed if the installed model API does not accept them.
+- Greedy decoding semantics are preserved while passing only supported kwargs.
+- The semantics of `activation_before` and `activation_after` are clarified: in v6.6.1 they are measured on the probe context, not on the generated continuation.
+- `feature_index`, `W_dec`, residual tensors, and SAE output shapes are validated with explicit errors.
+- `sae.encode()` methods returning tuples are supported by taking the first returned element.
+- The residual dtype is preserved when applying `magnitude * W_dec[feature_index]`.
+- Hook tests are strengthened so the intervention is actually invoked during generation.
+- Tests are added or extended for dtype preservation, unsupported generation kwargs, shape errors, tuple encode outputs, and opt-in slow integration.
+- The steering section is now described as an open-weight proxy implementation with remaining contracts, rather than as a pure implementation contract.
+- v6.6.0-specific wording is replaced by the broader v6.6.x objective.
+- The integrated README points to paper v0.29 and test procedure v6.6.1.
+
+Still not implemented:
+
+- `sae_latent_clamp`;
+- nnsight / production-model steering;
+- `run_intervention_controls()`;
+- `causal_scorer._load_pairs()`.
+
+Acceptance criteria for v6.6.1:
+
+- unit tests pass;
+- no schema change is introduced;
+- the multi-model layer remains intact;
+- Phase 4 is not automatically enabled;
+- no phrase claims that causal validation is complete;
+- no scientific claim in paper v0.29 is changed.
+
+Recommended test commands:
+
+```bash
+pip install -r requirements.txt
+pytest tests/test_steer_feature.py -v
+
+# Optional real integration test; may download a small model and public SAE:
+MORPHOREPR_RUN_SLOW_STEERING=1 pytest tests/test_steer_feature.py -v -k slow
+```
+
+## Current v6.6.1 status summary
+
+`steer_feature()` is now considered stable for a controlled dev run on the open-weight proxy path. It is not a full Phase 4 validation. The next major implementation task is `causal_scorer._load_pairs()`, which must connect:
+
+1. predictor outputs;
+2. observed classifier directions measured on `steering_results`;
+3. global `(feature_uid, property)` pairs for deterministic macro-F1 scoring.

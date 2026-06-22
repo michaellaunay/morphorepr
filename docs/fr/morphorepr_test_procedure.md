@@ -1,7 +1,7 @@
-# MorphoRepr — Procédure de test complète (v6.5.3)
+# MorphoRepr — Procédure de test complète (v6.6.1)
 ## Infrastructure expérimentale robuste pour une évaluation reproductible
 
-*Version 6.5.3 — Juin 2026. Cohérente avec l'article (≥ v0.29). Correctif d'une dernière fuite multi-modèle en Phase 4 : `steerer.run()` rendu strictement model-aware (la requête de chargement des sorties `encoder` filtre désormais sur `ao.model_run_id`, voir Section 23). Aucune modification de schéma. Compatible v6.5.x : `AnthropicProvider` conservé, Phase 4 toujours désactivée. La v6.5.3 reste une SPÉCIFICATION : `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` sont des contrats non implémentés (gardes `run_in_pipeline`).*
+*Version 6.6.1 — Juin 2026. Cohérente avec l'article (≥ v0.29). **Durcissement** de l'implémentation v6.6.0 de `steer_feature()` (chemin proxy open-weight, TransformerLens + SAE Lens) : `_generate_text()` adapté aux signatures variables de `model.generate` (introspection), validations de shapes / dtype / `feature_index` avec erreurs explicites, sémantique `activation_before/after` clarifiée (Option A : mesure sur la phrase-sonde), et tests renforcés (hook réellement actif pendant la génération, dtype préservé, test slow opt-in robuste). Aucun changement de schéma vs v6.5.3. Philosophie v6.6.0 inchangée : Phase 4 **désactivée par défaut** (`steering.run_in_pipeline=false`, non activée automatiquement), non validée scientifiquement ; `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des contrats (`NotImplementedError`). Couche multi-modèle v6.5.3 (`model_run_id`, `_load_encoded_random_features`) intacte. Voir Section 25.*
 
 ---
 
@@ -38,8 +38,8 @@ Le tête-à-tête de validité causale (MorphoRepr vs étiquettes NL vs Semantic
 **Règle 8 — Métrique primaire déterministe (sans juge LLM)**
 La comparaison prédiction/observation de la métrique primaire est **déterministe** : la direction prédite par l'agent de prédiction est comparée par **code** à la direction mesurée par les **classifieurs pré-enregistrés**. Aucun juge LLM n'intervient dans la métrique primaire. Un juge LLM (`qualitative_judge`) est réservé aux analyses qualitatives, cas ambigus et audit assisté (métriques secondaires). Le bootstrap est **clusterisé par feature** (l'unité de rééchantillonnage est la feature, pas le couple feature-propriété).
 
-**Règle 9 — La Phase 4 est un contrat d'implémentation, pas une implémentation**
-`steer_feature()` contient des placeholders et lève `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features, `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`).
+**Règle 9 — La Phase 4 reste gardée tant qu'un dev run ne l'a pas validée**
+`steer_feature()` est **implémenté pour le chemin proxy open-weight** (TransformerLens + SAE Lens, `residual_add_decoder`) ; les chemins nnsight / modèle de production et l'espace `sae_latent_clamp` lèvent `NotImplementedError`. Le pilot run **ne peut être lancé** que lorsque, sur un dev run de ≥ 5 features (`proxy_model.enabled=true`), `steer_feature()` produit réellement : `text_before`, `text_after`, `activation_before`, `activation_after`, le `delta` d'activation obtenu, et un `ood_flag` vérifiable (Section 7, garde `assert_steering_ready`). `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des contrats : la Phase 4 n'est pas scientifiquement validée et `steering.run_in_pipeline` reste `false` par défaut.
 
 **Règle 10 — Identité de feature robuste**
 Un `feature_index` seul ne suffit pas : le même index peut exister dans plusieurs couches, releases SAE ou modèles. L'identité canonique est `feature_uid = {model_name}:{sae_release}:{layer_index}:{hook_name}:{feature_index}`, avec contrainte d'unicité. Au sein d'un run unique (un modèle, une release, un ensemble de couches), `feature_index` reste un identifiant pratique pour les jointures ; `feature_uid` garantit l'unicité cross-couche/cross-SAE et est propagé aux tables aval.
@@ -74,12 +74,12 @@ Les conclusions scientifiques principales ne doivent pas dépendre uniquement d'
 
 **Artefacts à archiver pour la reproduction.** Pour chaque `model_run` : révision exacte du modèle et du tokenizer, `weights_sha256`, `tokenizer_sha256`, image Docker/Conda (`inference_env_hash`), version CUDA, version du backend, `precision`/`quantization`, paramètres d'inférence (`generation_params_json` : température, top_p, seed, max_new_tokens), prompts (hashés, Règle 3) et **sorties brutes**. Sans ces artefacts, un run ne peut pas prétendre à la reproductibilité et ne peut pas porter de claim primaire (garde `validate_model_providers`, Section 5 bis).
 
-**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.5.1**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
+**README — section à mettre à jour.** Le README doit désormais pointer le papier **v0.29** et la procédure **v6.6.1**, et **supprimer** les références obsolètes (papier v0.26 / `paper_v0.26.pdf`, ancien critère go/no-go par « IC non chevauchants » — remplacé dès la v0.27 par supériorité vs NL via IC de la différence appariée excluant 0 et non-infériorité vs Semantic Regexes). Section à inclure :
 
 ```markdown
 ## MorphoRepr — état du dépôt
 - Article : v0.29 (politique de modèles ouverts ; claims primaires sur modèle ouvert).
-- Procédure de test : v6.5.3 (propagation multi-modèle complète, Phase 4 incluse).
+- Procédure de test : v6.6.1 (steer_feature durci pour le chemin proxy open-weight ; Phase 4 désactivée par défaut).
 - Critère de validité causale : supériorité vs étiquettes NL (IC de la différence appariée,
   clusterisé par feature, excluant 0) ET non-infériorité vs Semantic Regexes (marge δ
   pré-enregistrée). NB : l'ancien critère « IC non chevauchants » est OBSOLÈTE.
@@ -151,7 +151,9 @@ morphorepr-pipeline/
 │   └── shuffled.py
 ├── utils/
 │   ├── db_utils.py
-│   ├── api_utils.py
+│   ├── api_utils.py                 ← LEGACY wrapper Batch API Anthropic (Tier C secondaire)
+│   ├── model_provider.py            ← abstraction ModelProvider (primaire ouvert + Anthropic)
+│   ├── model_policy.py              ← gardes Règle 11 (tiers, claim primaire, cross-modèle)
 │   ├── prompt_utils.py
 │   ├── config_utils.py
 │   ├── morphorepr_parser.py         ← parseur unique pour toutes les métriques
@@ -163,6 +165,10 @@ morphorepr-pipeline/
 │   ├── test_db.py
 │   ├── test_classifiers.py
 │   ├── test_shuffle_baseline.py
+│   ├── test_batch_custom_id.py
+│   ├── test_model_providers.py      ← Règle 11 (tiers, gardes, cross-modèle)
+│   ├── test_model_run_propagation.py ← propagation effective de model_run_id (+ Phase 4 model-aware)
+│   ├── test_steer_feature.py        ← steer_feature (chemin proxy open-weight, durci v6.6.1)
 │   └── test_pipeline_e2e.py
 ├── orchestrator.py
 ├── requirements.txt
@@ -187,7 +193,7 @@ morphorepr-pipeline/
 # configs/run_v1.yaml
 
 run_id_prefix: "morphorepr_v1"
-description: "Full frozen run MorphoRepr v0.29 / procedure v6.5.3 — 500 features"
+description: "Full frozen run MorphoRepr v0.29 / procedure v6.6.1 — 500 features"
 
 # Reproductibilité
 git_commit: "FILL_BEFORE_LAUNCH"    # vérifié contre le HEAD Git réel à l'init
@@ -295,9 +301,10 @@ clustering:
 
 # Steering SAE
 steering:
-  # La Phase 4 (steering) est un CONTRAT non implémenté (Section 7). Désactivée par défaut
-  # pour permettre un dev run "plomberie hors steering" sans crash ; passer à true UNIQUEMENT
-  # une fois steer_feature() réellement implémenté (et assert_steering_ready passant).
+  # `steer_feature()` est IMPLÉMENTÉ pour le chemin proxy open-weight (TransformerLens + SAE
+  # Lens, Section 7). Phase 4 reste néanmoins DÉSACTIVÉE par défaut tant que (a) `assert_steering_ready()`
+  # n'a pas été validé sur un dev run (proxy_model.enabled=true) ET (b) le scoring causal reste
+  # contractuel (`causal_scorer._load_pairs()` non implémenté). Passer à true UNIQUEMENT après (a).
   run_in_pipeline: false
   # Magnitude PRIMAIRE normalisée par feature : multiple du 99e percentile (activation_p99).
   # La magnitude absolue +5 (Anthropic, 2024) est conservée comme condition SECONDAIRE/historique.
@@ -450,10 +457,10 @@ seed: 42
 
 ---
 
-## 3. Schéma SQLite complet (v6.5.3)
+## 3. Schéma SQLite complet (v6.6.1)
 
 ```sql
--- db/schema.sql  —  Version 6.5.3, ne jamais modifier après le full run
+-- db/schema.sql  —  Version 6.6.1 (aucun changement de schéma vs 6.5.3), ne jamais modifier après le full run
 
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -2439,23 +2446,27 @@ if __name__ == "__main__":
 
 ---
 
-## 7. Agent de steering — contrat d'implémentation (v6)
+## 7. Agent de steering — implémentation proxy open-weight et contrats restants
 
 ```python
 # agents/steerer.py
 """
-Phase 4 — Steering d'activation SAE (CONTRAT D'IMPLÉMENTATION v6).
+Phase 4 — Steering d'activation SAE.
 
-Cette section est un CONTRAT : steer_feature() contient des placeholders et lève
-NotImplementedError. Le pilot run est bloqué tant que assert_steering_ready() échoue
-(Règle 9).
+steer_feature() est IMPLÉMENTÉ pour le CHEMIN PROXY OPEN-WEIGHT (TransformerLens + SAE Lens,
+espace 'residual_add_decoder'). Les chemins nnsight / modèle de production NE SONT PAS
+implémentés (NotImplementedError explicite), de même que l'espace 'sae_latent_clamp'.
+run_intervention_controls() et causal_scorer._load_pairs() restent des CONTRATS.
+Phase 4 reste DÉSACTIVÉE par défaut (steering.run_in_pipeline=false) ; assert_steering_ready()
+doit passer sur un dev run avant tout pilot/full run avec steering activé (Règle 9). L'objectif
+de la série v6.6.x est un dev run de Phase 4 testable, PAS une validation scientifique de la Phase 4.
 
 Spécification de l'intervention (v6) :
-  - Espace :          'residual_add_decoder' (ajout d'un multiple de W_dec au résiduel) OU
-                      'sae_latent_clamp' (clamp de l'activation latente). ATTENTION : ajouter
-                      k×W_dec au résiduel ne garantit PAS une hausse de k×p99 de l'activation
-                      latente mesurée (norme du décodeur, encodage, interférences, non-linéarités).
-                      On RAPPORTE donc le delta OBTENU (achieved_delta), pas seulement la magnitude visée.
+  - Espace :          'residual_add_decoder' (ajout d'un multiple de W_dec au résiduel) — IMPLÉMENTÉ.
+                      'sae_latent_clamp' (clamp de l'activation latente) — NON implémenté (erreur
+                      explicite). ATTENTION : ajouter k×W_dec au résiduel ne garantit PAS une
+                      hausse de k×p99 de l'activation latente mesurée (norme du décodeur, encodage,
+                      interférences, non-linéarités). On RAPPORTE le delta OBTENU (achieved_delta).
   - Couche :          la COUCHE PROPRE DU FEATURE (layer_index) ; SAE chargé/caché par couche (Règle 6)
   - Position token :  configurable ("all" | "last" | "content_only")
   - Amplitude :       PRIMAIRE = primary_magnitude_rel × activation_p99 (mode "p99_relative") ;
@@ -2468,10 +2479,11 @@ Spécification de l'intervention (v6) :
                       (robuste aux p99 faibles / distributions asymétriques). Stats issues
                       de la table features, PAS de la norme W_dec. ood_flag=1 exclu du primaire.
 
-Chemins d'accès au modèle (implémenter l'un d'eux avant le pilot run) :
-  A. TransformerLens — pour les modèles proxy open-weight de style GPT
-  B. nnsight         — si accès direct à un modèle de production disponible
-  C. Poids locaux    — si modèle open-weight compatible SAE disponible
+Chemins d'accès au modèle :
+  A. TransformerLens — modèles proxy open-weight de style GPT — IMPLÉMENTÉ (proxy_model.enabled=true)
+  B. nnsight         — accès à un modèle de production — NON implémenté
+  C. Poids locaux    — modèle open-weight compatible SAE — via le chemin A
+
 
 Modèle de validation (proxy par défaut, Règle 5) :
   proxy_model.enabled=true par défaut. Le pipeline entier opère alors sur les SAEs
@@ -2659,6 +2671,220 @@ def _is_ood(activation_after, activation_before, feature_stats: dict, config: di
     return 0
 
 
+def _get_hook_name_from_sae(sae, config) -> str:
+    """Résout le hook_name de l'intervention. Priorité à sae.cfg.hook_name (SAE Lens) ;
+    sinon sae.cfg.hook_layer → normalize_layer(int). Erreur explicite si indéterminable.
+    On NE hardcode PAS une couche globale (la couche est celle du SAE/feature)."""
+    cfg = getattr(sae, "cfg", None)
+    name = getattr(cfg, "hook_name", None)
+    if name:
+        return name
+    hook_layer = getattr(cfg, "hook_layer", None)
+    if hook_layer is not None:
+        return normalize_layer(int(hook_layer))
+    raise ValueError(
+        "hook_name introuvable : ni sae.cfg.hook_name ni sae.cfg.hook_layer disponibles. "
+        "Vérifier la version de sae_lens / l'objet SAE."
+    )
+
+
+def _tokens_from_prompt(model, sentence: str):
+    """Tokenise une phrase-sonde via l'API TransformerLens (model.to_tokens)."""
+    return model.to_tokens(sentence)
+
+
+def _position_indices(seq_len: int, token_position: str) -> list[int]:
+    """Indices de positions (entiers) selon token_position — logique PURE (sans torch),
+    utilisée à la fois pour la mesure et pour le hook d'intervention.
+      - 'last'         : dernier token
+      - 'content_only' : exclut le BOS (index 0)
+      - 'all'          : toutes les positions
+    Repli sur [seq_len-1] si la sélection est vide."""
+    if token_position == "last":
+        return [seq_len - 1]
+    idx = list(range(seq_len))
+    if token_position == "content_only":
+        idx = [i for i in idx if i != 0]      # exclure BOS
+    return idx if idx else [seq_len - 1]
+
+
+def _selected_token_positions(tokens, token_position: str, pad_token_id=None) -> list[int]:
+    """Positions utiles pour une phrase. `tokens` : tenseur [1, seq] / [seq] ou un entier
+    seq_len. En 'content_only', exclut aussi les positions de padding si pad_token_id fourni."""
+    if isinstance(tokens, int):
+        return _position_indices(tokens, token_position)
+    row = tokens[0] if hasattr(tokens, "dim") and tokens.dim() == 2 else tokens
+    seq_len = int(len(row))
+    idx = _position_indices(seq_len, token_position)
+    if token_position == "content_only" and pad_token_id is not None:
+        rl = row.tolist() if hasattr(row, "tolist") else list(row)
+        idx = [i for i in idx if rl[i] != pad_token_id]
+    return idx if idx else [seq_len - 1]
+
+
+def _aggregate_feature_activation(feature_acts, token_positions, feature_index: int,
+                                  aggregation: str = "max") -> float:
+    """Agrège l'activation latente du feature cible sur les positions sélectionnées.
+    feature_acts : tenseur [seq, d_sae] ou [1, seq, d_sae]. Agrégation 'max' par défaut
+    (on cherche l'activation MAXIMALE du feature sur la phrase) ; 'mean'/'last' supportées."""
+    fa = feature_acts
+    if fa.dim() == 3:
+        fa = fa[0]                              # [seq, d_sae]
+    col = fa[:, feature_index]                  # [seq]
+    sel = col[token_positions] if len(token_positions) else col
+    if aggregation == "last":
+        val = sel[-1]
+    elif aggregation == "mean":
+        val = sel.mean()
+    else:
+        val = sel.max()
+    return float(val.detach().cpu().item())
+
+
+def _make_residual_add_decoder_hook(sae, feature_index: int, magnitude: float,
+                                    token_position: str, config: dict):
+    """Hook TransformerLens : ajoute magnitude · sae.W_dec[feature_index] au résiduel, AUX
+    POSITIONS sélectionnées par token_position (les autres positions sont inchangées).
+    NB : ajouter k·W_dec NE GARANTIT PAS une hausse de k de l'activation latente — d'où la
+    mesure de achieved_delta. W_dec[feature_index] (PAS sa norme)."""
+    direction = sae.W_dec[feature_index]        # [d_model]
+
+    def hook(resid, hook):                      # resid : [batch, seq, d_model]
+        seq = resid.shape[1]
+        positions = _position_indices(seq, token_position)
+        d = direction.to(device=resid.device, dtype=resid.dtype)
+        resid[:, positions, :] = resid[:, positions, :] + float(magnitude) * d
+        return resid
+
+    return hook
+
+
+def _validate_feature_and_shapes(sae, feature_index: int, resid) -> None:
+    """Validations de bornes/shapes avec erreurs EXPLICITES (formes observées) :
+      - feature_index ∈ [0, sae.W_dec.shape[0]) ;
+      - d_model du décodeur (W_dec.shape[1]) == d_model du résiduel (resid.shape[-1])."""
+    n_features = sae.W_dec.shape[0]
+    if not (0 <= int(feature_index) < int(n_features)):
+        raise IndexError(
+            f"feature_index={feature_index} hors borne [0, {n_features}) "
+            f"(sae.W_dec.shape[0]={n_features})."
+        )
+    d_dec = sae.W_dec.shape[1]
+    d_resid = resid.shape[-1]
+    if int(d_dec) != int(d_resid):
+        raise ValueError(
+            f"Dimension incompatible SAE/résiduel : W_dec d_model={d_dec} ≠ résiduel "
+            f"d_model={d_resid} (W_dec.shape={tuple(sae.W_dec.shape)}, "
+            f"resid.shape={tuple(resid.shape)})."
+        )
+
+
+def _measure_feature_activation(model, sae, tokens, feature_index: int, config: dict,
+                                hook_fn=None, hook_name: str = None) -> float:
+    """Forward pass → résiduel au hook du SAE → encode SAE → activation du feature cible,
+    agrégée selon token_position. Si hook_fn est fourni, il est appliqué AVANT la capture
+    (le résiduel mesuré est donc post-intervention). On capture via un hook de capture ajouté
+    APRÈS le hook d'intervention (ordre des fwd_hooks garanti) pour éviter toute ambiguïté.
+
+    SÉMANTIQUE (Option A, v6.6.1) : la mesure porte sur le CONTEXTE de la phrase-sonde
+    (`tokens`), PAS sur la continuation générée. activation_before/after sont donc des
+    `probe_activation_before/after` : elles quantifient l'effet de l'intervention sur le
+    résiduel de la sonde au hook du SAE. (Option B — mesurer sur le texte généré complet —
+    mélangerait l'effet du changement de texte avec l'effet direct de l'intervention ; non
+    retenue en v6.6.1. Aucun changement de schéma.)"""
+    hook_name = hook_name or _get_hook_name_from_sae(sae, config)
+    captured = {}
+
+    def _capture(resid, hook):
+        captured["resid"] = resid
+        return resid
+
+    fwd = []
+    if hook_fn is not None:
+        fwd.append((hook_name, hook_fn))        # intervention d'abord
+    fwd.append((hook_name, _capture))           # capture ensuite (post-intervention)
+    model.run_with_hooks(tokens, fwd_hooks=fwd, return_type=None)
+
+    if "resid" not in captured:
+        raise RuntimeError(
+            f"Le hook {hook_name} n'a pas été déclenché : impossible de mesurer l'activation. "
+            f"Vérifier que le SAE et le modèle partagent bien ce point d'accroche."
+        )
+    resid = captured["resid"]
+    if hasattr(resid, "dim") and resid.dim() == 2:
+        resid = resid.unsqueeze(0)
+    _validate_feature_and_shapes(sae, feature_index, resid)   # bornes + d_model (formes observées)
+    dev = getattr(getattr(sae, "W_dec", None), "device", None)
+    if dev is not None:
+        resid = resid.to(dev)
+    acts = sae.encode(resid)
+    if isinstance(acts, tuple):                 # certaines versions renvoient (acts, …) — toléré, documenté
+        acts = acts[0]
+    if hasattr(acts, "dim") and acts.dim() not in (2, 3):
+        raise ValueError(
+            f"sae.encode a renvoyé une forme inattendue {tuple(acts.shape)} ; "
+            f"attendu [batch, seq, d_sae] ou [seq, d_sae]."
+        )
+    st = config["steering"]
+    pad_id = getattr(getattr(model, "tokenizer", None), "pad_token_id", None)
+    positions = _selected_token_positions(tokens, st.get("token_position", "all"), pad_token_id=pad_id)
+    return _aggregate_feature_activation(acts, positions, feature_index,
+                                         aggregation=st.get("activation_aggregation", "max"))
+
+
+def _supported_generate_kwargs(model, desired: dict) -> dict:
+    """Filtre `desired` selon la signature RÉELLE de model.generate (compat TransformerLens
+    multi-versions). Si generate accepte **kwargs (VAR_KEYWORD), tout est conservé. Lève
+    AttributeError explicite si model.generate est absent / non appelable."""
+    import inspect
+    gen = getattr(model, "generate", None)
+    if gen is None or not callable(gen):
+        raise AttributeError(
+            "model.generate introuvable ou non appelable : modèle incompatible avec le chemin "
+            "de génération (TransformerLens HookedTransformer attendu)."
+        )
+    try:
+        params = list(inspect.signature(gen).parameters.values())
+    except (TypeError, ValueError):
+        return dict(desired)                 # signature introuvable : tenter tel quel
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params):
+        return dict(desired)                 # **kwargs → tout est accepté
+    allowed = {p.name for p in params}
+    return {k: v for k, v in desired.items() if k in allowed}
+
+
+def _generate_text(model, prompt: str, config: dict, hook_fn=None) -> str:
+    """Génère une continuation via model.generate, avec les paramètres GELÉS dans
+    config['steering']['decoding'] (greedy si temperature=0). ROBUSTE aux signatures variables
+    de TransformerLens : seuls les kwargs réellement supportés sont passés (introspection via
+    _supported_generate_kwargs). Mapping greedy : temperature=0.0 et/ou do_sample=False selon
+    le support ; top_p/verbose seulement s'ils sont acceptés. Si hook_fn=(hook_name, fn), la
+    génération se fait AVEC le hook actif (steering). Le prompt est inchangé entre before/after.
+    Retourne la sortie GÉNÉRÉE (≠ simple phrase-sonde)."""
+    dec = config["steering"].get("decoding", {})
+    temperature = dec.get("temperature", 0.0)
+    greedy = not (temperature and float(temperature) > 0.0)
+    desired = {"max_new_tokens": dec.get("max_new_tokens", 64), "verbose": False}
+    if greedy:
+        desired["do_sample"] = False         # greedy déterministe
+        desired["temperature"] = 0.0
+    else:
+        desired["do_sample"] = True
+        desired["temperature"] = float(temperature)
+        if "top_p" in dec:
+            desired["top_p"] = dec["top_p"]
+    kw = _supported_generate_kwargs(model, desired)
+    logger.debug(
+        f"_generate_text → model.generate kwargs={sorted(kw)} "
+        f"(greedy={greedy}, hook={'oui' if hook_fn else 'non'})"
+    )
+    if hook_fn is not None:
+        hook_name, fn = hook_fn
+        with model.hooks(fwd_hooks=[(hook_name, fn)]):
+            return model.generate(prompt, **kw)
+    return model.generate(prompt, **kw)
+
+
 def steer_feature(model,
                   sae,
                   feature_index: int,
@@ -2667,44 +2893,82 @@ def steer_feature(model,
                   feature_stats: dict,
                   config: dict) -> list[dict]:
     """
-    Applique le steering et retourne les paires avant/après + le delta OBTENU.
+    Applique le steering et retourne, par phrase-sonde, la paire avant/après + le delta OBTENU.
 
-    La détection OOD utilise activation_p99/mean/std depuis feature_stats (table features),
-    PAS sae.W_dec[feature_index].norm() (grandeur différente). Le delta latent obtenu
-    (achieved_delta) est mesuré et rapporté : ajouter magnitude·W_dec au résiduel ne garantit
-    pas une hausse égale de l'activation latente (Section 7).
+    IMPLÉMENTÉ pour le CHEMIN PROXY OPEN-WEIGHT (TransformerLens + SAE Lens), espace
+    `residual_add_decoder`. PAS de simulation, PAS de placeholder : text_before/after sont des
+    générations réelles, les activations sont mesurées par forward pass + encode SAE.
 
-    Étapes d'implémentation :
-    1. Tokeniser la phrase-sonde
-    2. Forward pass, enregistrer l'activation latente cible AVANT (activation_before)
-    3. Intervenir selon intervention_space :
-       - 'residual_add_decoder' : ajouter magnitude · sae.W_dec[feature_index] au résiduel
-       - 'sae_latent_clamp'     : clamper l'activation latente cible à la valeur visée
-    4. Ré-exécuter le forward pass avec l'intervention
-    5. Mesurer l'activation latente cible APRÈS (activation_after) ; décoder text_before/after
-    6. achieved_delta = activation_after - activation_before ; calculer ood_flag (critère mixte)
+    Chemins NON implémentés (erreur explicite) :
+      - proxy_model.enabled=false (chemin nnsight / modèle de production) → NotImplementedError ;
+      - intervention_space='sae_latent_clamp' → NotImplementedError (v6.6.0 ne fait que
+        'residual_add_decoder', le chemin primaire le plus simple à valider).
+
+    La détection OOD utilise activation_p99/mean/std (feature_stats), PAS la norme de W_dec.
+    Ajouter magnitude·W_dec au résiduel ne garantit pas une hausse égale de l'activation
+    latente : on mesure et rapporte achieved_delta (Section 7).
+
+    SÉMANTIQUE (Option A, v6.6.1) : activation_before/after sont des `probe_activation_before/after`
+    — mesurées sur le CONTEXTE de la phrase-sonde au hook du SAE, PAS sur la continuation
+    générée (voir _measure_feature_activation). text_before/after sont, eux, des générations
+    réelles. Aucun changement de schéma.
     """
+    proxy = config.get("proxy_model", {})
+    if not proxy.get("enabled"):
+        raise NotImplementedError(
+            "steer_feature() : seul le chemin PROXY OPEN-WEIGHT est implémenté "
+            "(mettre proxy_model.enabled=true). Les chemins nnsight / modèle de production "
+            "ne sont PAS implémentés (aucune interface publique ne garantit le steering interne "
+            "d'un modèle propriétaire)."
+        )
+
+    space = config["steering"].get("intervention_space", "residual_add_decoder")
+    if space == "sae_latent_clamp":
+        raise NotImplementedError(
+            "intervention_space='sae_latent_clamp' n'est PAS implémenté en v6.6.x "
+            "(seul 'residual_add_decoder' l'est). Approche prévue (à implémenter proprement, "
+            "sans pseudo-code) : encoder le résiduel, cloner les activations SAE, fixer "
+            "l'activation cible vers activation_before+magnitude, puis appliquer au résiduel "
+            "le delta de reconstruction decode(clamped)-decode(original). Tant que ce n'est "
+            "pas fait, ce mode échoue bruyamment plutôt que de produire un faux résultat."
+        )
+    if space != "residual_add_decoder":
+        raise ValueError(f"intervention_space inconnu : {space!r}")
+
+    # Borne feature_index dès l'entrée (erreur explicite avant toute génération coûteuse)
+    n_features = sae.W_dec.shape[0]
+    if not (0 <= int(feature_index) < int(n_features)):
+        raise IndexError(
+            f"feature_index={feature_index} hors borne [0, {n_features}) "
+            f"(sae.W_dec.shape[0]={n_features})."
+        )
+
+    token_position = config["steering"].get("token_position", "all")
+    hook_name = _get_hook_name_from_sae(sae, config)
     results = []
 
     for probe_id, sentence in enumerate(probe_sentences, 1):
         try:
-            # ── PLACEHOLDER — implémenter le steering spécifique au modèle ──
-            text_before       = sentence
-            text_after        = None          # DOIT être remplacé par l'implémentation
-            activation_before = None
-            activation_after  = None
-            # ─────────────────────────────────────────────────────────────────
+            # 1. Continuation SANS intervention (sortie générée, pas la simple phrase-sonde)
+            text_before = _generate_text(model, sentence, config, hook_fn=None)
 
-            # Garde : échouer bruyamment si les placeholders ne sont pas remplacés
-            if text_after is None or text_after == sentence:
-                raise NotImplementedError(
-                    f"Placeholder steer_feature() non remplacé pour "
-                    f"feature {feature_index}, magnitude {magnitude}.\n"
-                    f"Implémenter le steering spécifique au modèle avant le pilot run."
-                )
+            # 2. Activation latente AVANT (forward pass + encode SAE + agrégation)
+            tokens = _tokens_from_prompt(model, sentence)
+            activation_before = _measure_feature_activation(
+                model, sae, tokens, feature_index, config, hook_fn=None, hook_name=hook_name)
 
-            achieved_delta = (None if activation_after is None or activation_before is None
-                              else activation_after - activation_before)
+            # 3-4. Intervention residual_add_decoder + continuation AVEC hook actif (même prompt,
+            #      mêmes paramètres de génération)
+            steer_hook = _make_residual_add_decoder_hook(
+                sae, feature_index, magnitude, token_position, config)
+            text_after = _generate_text(model, sentence, config, hook_fn=(hook_name, steer_hook))
+
+            # 5. Activation latente APRÈS (même hook actif, même agrégation)
+            activation_after = _measure_feature_activation(
+                model, sae, tokens, feature_index, config, hook_fn=steer_hook, hook_name=hook_name)
+
+            # 6. Delta obtenu + OOD
+            achieved_delta = activation_after - activation_before
             ood = _is_ood(activation_after, activation_before, feature_stats, config)
 
             results.append({
@@ -2714,14 +2978,17 @@ def steer_feature(model,
                 "activation_before": activation_before,
                 "activation_after":  activation_after,
                 "achieved_delta":    achieved_delta,
-                "ood_flag":          ood
+                "ood_flag":          ood,
             })
         except NotImplementedError:
-            raise   # propager — ne pas avaler les erreurs d'implémentation
+            raise   # NE JAMAIS masquer une erreur d'implémentation : échouer bruyamment
         except Exception as e:
+            # Erreur technique sur UNE probe : consignée (le batch n'est pas interrompu), mais
+            # text_after=None + 'error' fera échouer assert_steering_ready (comportement voulu :
+            # un steering cassé ne doit pas passer pour valide).
             logger.warning(
-                f"Erreur steering feature {feature_index} "
-                f"probe {probe_id} magnitude {magnitude}: {e}"
+                f"Erreur steering feature {feature_index} probe {probe_id} "
+                f"magnitude {magnitude}: {e}"
             )
             results.append({
                 "probe_id":          probe_id,
@@ -2731,7 +2998,7 @@ def steer_feature(model,
                 "activation_after":  None,
                 "achieved_delta":    None,
                 "ood_flag":          0,
-                "error":             str(e)
+                "error":             str(e),
             })
     return results
 
@@ -4083,6 +4350,386 @@ def test_steering_charge_uniquement_le_modele_primaire(test_db):
     assert len(feats_b) == 1 and feats_b[0]["expression"] == "0.70·sci-o"
 ```
 
+```python
+# ─────────────────────────────────────────────
+# tests/test_steer_feature.py  (v6.6.1 — durcissement du chemin proxy open-weight)
+# Mocks légers de l'API TransformerLens/SAE Lens : aucun modèle réel n'est chargé (sauf le
+# test slow, opt-in). On vérifie l'absence de placeholder, le delta, l'OOD, le mode non
+# implémenté, la sélection de positions, le hook, assert_steering_ready, ET (v6.6.1) :
+# _generate_text adaptatif (signatures variables), hook réellement actif pendant la génération,
+# validations de shapes/bornes, dtype préservé.
+# ─────────────────────────────────────────────
+
+import os
+import types
+import contextlib
+import pytest
+import torch
+
+import agents.steerer as steerer
+from agents.steerer import (
+    steer_feature, assert_steering_ready, _is_ood, REQUIRED_STEER_FIELDS,
+    _position_indices, _selected_token_positions, _make_residual_add_decoder_hook,
+    _supported_generate_kwargs, _generate_text, _measure_feature_activation,
+    _aggregate_feature_activation, _validate_feature_and_shapes,
+)
+
+D_MODEL, D_SAE = 4, 3
+
+
+class _FakeSAE:
+    """W_dec[0] = e_0 ; encode = projection identité sur les d_sae premières dims du résiduel.
+    Donc activation du feature 0 = composante 0 du résiduel."""
+    def __init__(self):
+        self.W_dec = torch.zeros(D_SAE, D_MODEL)
+        self.W_dec[0, 0] = 1.0
+        self.cfg = types.SimpleNamespace(hook_name="blocks.0.hook_resid_post", hook_layer=0)
+
+    def encode(self, resid):
+        return resid[..., :D_SAE]
+
+
+class _FakeModel:
+    """Mock minimal de HookedTransformer : to_tokens / run_with_hooks / hooks / generate.
+    Le résiduel de base est un tenseur de 1.0 ; generate marque l'état (steering on/off)."""
+    def __init__(self):
+        self.cfg = types.SimpleNamespace(d_model=D_MODEL)
+        self.tokenizer = types.SimpleNamespace(pad_token_id=None)
+        self._steering = False
+
+    def to_tokens(self, sentence, prepend_bos=True):
+        n = max(1, len(str(sentence).split()))
+        return torch.arange(0, n + 1).unsqueeze(0)        # [1, n+1] (index 0 = BOS)
+
+    def run_with_hooks(self, tokens, fwd_hooks=None, return_type=None):
+        seq = tokens.shape[1]
+        resid = torch.ones(1, seq, D_MODEL)               # résiduel de base
+        hook = types.SimpleNamespace(name="blocks.0.hook_resid_post")
+        for _name, fn in (fwd_hooks or []):
+            resid = fn(resid, hook)                       # intervention puis capture
+        return None
+
+    @contextlib.contextmanager
+    def hooks(self, fwd_hooks=None):
+        self._steering = True
+        try:
+            yield self
+        finally:
+            self._steering = False
+
+    def generate(self, prompt, **kw):
+        return prompt + (" STEERED" if self._steering else " CONT")
+
+
+def _config(intervention_space="residual_add_decoder", token_position="all"):
+    return {
+        "proxy_model": {"enabled": True, "name": "fake", "sae_release": "fake"},
+        "steering": {
+            "intervention_space": intervention_space,
+            "token_position": token_position,
+            "activation_aggregation": "max",
+            "decoding": {"temperature": 0.0, "max_new_tokens": 8},
+            "ood_tau": 3.0, "ood_k": 4.0, "ood_epsilon": 1e-3, "ood_delta_max": 5.0,
+        },
+    }
+
+
+_STATS = {"activation_p99": 10.0, "activation_mean": 1.0, "activation_std": 1.0}
+
+
+# 1. Pas de placeholder : champs requis présents, text_after non None et ≠ text_before
+def test_steer_feature_no_placeholder():
+    res = steer_feature(_FakeModel(), _FakeSAE(), feature_index=0, magnitude=1.5,
+                        probe_sentences=["the cat sat on the mat"],
+                        feature_stats=_STATS, config=_config())
+    assert len(res) == 1
+    r = res[0]
+    for f in REQUIRED_STEER_FIELDS:
+        assert f in r
+    assert r["text_after"] is not None
+    assert r["text_after"] != r["text_before"]            # le steering change la sortie générée
+    assert isinstance(r["text_before"], str) and r["text_before"] != "the cat sat on the mat"
+
+
+# 2. Calcul du delta : base=1.0 (résiduel de 1), magnitude=1.5 → after=2.5, delta=1.5
+def test_steer_feature_delta():
+    res = steer_feature(_FakeModel(), _FakeSAE(), feature_index=0, magnitude=1.5,
+                        probe_sentences=["alpha beta gamma"],
+                        feature_stats=_STATS, config=_config())
+    r = res[0]
+    assert abs(r["activation_before"] - 1.0) < 1e-6
+    assert abs(r["activation_after"] - 2.5) < 1e-6
+    assert abs(r["achieved_delta"] - 1.5) < 1e-6
+
+
+# 3. OOD : un delta excessif déclenche ood_flag=1 (stats contrôlées)
+def test_is_ood_flag():
+    cfg = _config()
+    stats = {"activation_p99": 1.0, "activation_mean": 0.5, "activation_std": 0.2}
+    assert _is_ood(activation_after=100.0, activation_before=1.0,
+                   feature_stats=stats, config=cfg) == 1
+    assert _is_ood(activation_after=0.6, activation_before=0.5,
+                   feature_stats=stats, config=cfg) == 0
+
+
+# 4. Mode non implémenté : sae_latent_clamp lève NotImplementedError explicitement
+def test_sae_latent_clamp_not_implemented():
+    with pytest.raises(NotImplementedError):
+        steer_feature(_FakeModel(), _FakeSAE(), feature_index=0, magnitude=1.0,
+                      probe_sentences=["x y z"], feature_stats=_STATS,
+                      config=_config(intervention_space="sae_latent_clamp"))
+
+
+# 4b. Chemin non-proxy : NotImplementedError explicite (nnsight / production non implémenté)
+def test_non_proxy_not_implemented():
+    cfg = _config(); cfg["proxy_model"]["enabled"] = False
+    with pytest.raises(NotImplementedError):
+        steer_feature(_FakeModel(), _FakeSAE(), feature_index=0, magnitude=1.0,
+                      probe_sentences=["x y z"], feature_stats=_STATS, config=cfg)
+
+
+# 5. Sélection de positions : all / last / content_only
+def test_token_position_selection():
+    assert _position_indices(5, "all") == [0, 1, 2, 3, 4]
+    assert _position_indices(5, "last") == [4]
+    assert _position_indices(5, "content_only") == [1, 2, 3, 4]      # exclut le BOS
+    toks = torch.arange(0, 5).unsqueeze(0)                            # [1,5]
+    assert _selected_token_positions(toks, "last") == [4]
+    assert _selected_token_positions(toks, "content_only") == [1, 2, 3, 4]
+
+
+# 6. Hook : ajoute magnitude·W_dec[feature_index] aux positions sélectionnées seulement
+def test_residual_add_decoder_hook_last_position_only():
+    sae = _FakeSAE()
+    hook = _make_residual_add_decoder_hook(sae, feature_index=0, magnitude=2.0,
+                                           token_position="last", config=_config())
+    resid = torch.zeros(1, 4, D_MODEL)
+    hook_obj = types.SimpleNamespace(name="blocks.0.hook_resid_post")
+    out = hook(resid, hook_obj)
+    # dernière position modifiée de 2.0·e_0, les autres inchangées
+    assert torch.allclose(out[0, -1], torch.tensor([2.0, 0.0, 0.0, 0.0]))
+    assert torch.allclose(out[0, :-1], torch.zeros(3, D_MODEL))
+
+
+# 7. assert_steering_ready : passe avec mocks ; échoue si text_after == placeholder
+def test_assert_steering_ready_passes_and_fails(test_db, monkeypatch):
+    import sqlite3
+    conn = sqlite3.connect(test_db)
+    conn.execute("""INSERT INTO runs (run_id,git_commit,config_hash,prompt_hashes,lexicon_version,
+        lexicon_hash,corpus_hash,models_json,use_temperature,temperature,seed,proxy_model,started_at,
+        completed_at,status,last_phase,total_cost_usd) VALUES ('r1','c','h','{}','v1','lh',NULL,'{}',
+        0,NULL,42,NULL,'t',NULL,'loading',NULL,0.0)""")
+    conn.execute("""INSERT INTO features (feature_uid,model_name,sae_release,layer_index,hook_name,
+        feature_index,split,nl_description,top_examples,score_interp,activation_freq,activation_p99,
+        activation_mean,activation_std,layer,neuronpedia_url,loaded_at) VALUES
+        ('gpt2:res-jb:0:hook_resid_post:0','gpt2','res-jb',0,'hook_resid_post',0,'random','d','[]',
+        0.8,0.5,10.0,1.0,1.0,'0','x','t')""")
+    conn.commit(); conn.close()
+
+    monkeypatch.setattr(steerer, "_get_model", lambda config: _FakeModel())
+    monkeypatch.setattr(steerer, "_get_sae", lambda config, layer: _FakeSAE())
+    monkeypatch.setattr(steerer, "load_probe_sentences",
+                        lambda n=5, family="neutral": [f"probe number {i} here" for i in range(n)])
+
+    # passe : steer_feature réel produit text_after ('… STEERED') ≠ text_before ('… CONT')
+    assert_steering_ready(_config(), n_probe=3)
+
+    # échoue : steer_feature renvoie un text_after == text_before (placeholder simulé)
+    def _placeholder_steer(model, sae, feature_index, magnitude, probe_sentences, feature_stats, config):
+        return [{"probe_id": 1, "text_before": "same", "text_after": "same",
+                 "activation_before": 1.0, "activation_after": 1.0,
+                 "achieved_delta": 0.0, "ood_flag": 0}]
+    monkeypatch.setattr(steerer, "steer_feature", _placeholder_steer)
+    with pytest.raises(RuntimeError):
+        assert_steering_ready(_config(), n_probe=3)
+
+
+# ── v6.6.1 : _generate_text robuste aux signatures variables de model.generate ──
+
+class _FakeModelNoDoSample:
+    """generate() N'ACCEPTE PAS do_sample/top_p : _generate_text ne doit PAS les passer."""
+    def __init__(self):
+        self.received = None
+    @contextlib.contextmanager
+    def hooks(self, fwd_hooks=None):
+        yield self
+    def generate(self, prompt, max_new_tokens=16, temperature=0.0, verbose=False):
+        self.received = {"max_new_tokens": max_new_tokens, "temperature": temperature,
+                         "verbose": verbose}
+        return prompt + " OUT"
+
+
+def test_generate_text_filters_unsupported_kwargs():
+    m = _FakeModelNoDoSample()
+    out = _generate_text(m, "hello world", _config())          # ne doit pas planter
+    assert out == "hello world OUT"
+    assert "do_sample" not in m.received and "top_p" not in m.received   # filtrés
+    assert m.received["temperature"] == 0.0 and m.received["verbose"] is False
+
+
+class _FakeModelVarKw:
+    """generate(**kwargs) : tout doit être conservé (VAR_KEYWORD)."""
+    def __init__(self):
+        self.received = None
+    @contextlib.contextmanager
+    def hooks(self, fwd_hooks=None):
+        yield self
+    def generate(self, prompt, **kwargs):
+        self.received = kwargs
+        return prompt + " OUT"
+
+
+def test_generate_text_var_keyword_keeps_all():
+    m = _FakeModelVarKw()
+    _generate_text(m, "x", _config())
+    assert m.received.get("do_sample") is False and m.received.get("temperature") == 0.0
+    assert "max_new_tokens" in m.received
+
+
+def test_generate_text_missing_generate_raises():
+    class _NoGen:
+        pass
+    with pytest.raises(AttributeError):
+        _supported_generate_kwargs(_NoGen(), {"do_sample": False})
+
+
+# ── v6.6.1 : le hook est RÉELLEMENT exécuté pendant model.generate ──
+
+class _HookExecModel:
+    """generate() exécute RÉELLEMENT les hooks enregistrés via hooks(fwd_hooks=...), comme
+    TransformerLens : prouve que le hook modifie le résiduel pendant la génération (et pas un
+    simple booléen _steering). Trace les hook_name vus/appelés."""
+    def __init__(self):
+        self.cfg = types.SimpleNamespace(d_model=D_MODEL)
+        self.tokenizer = types.SimpleNamespace(pad_token_id=None)
+        self._fwd = []
+        self.hooks_entered = []
+        self.hook_calls = []
+
+    def to_tokens(self, s, prepend_bos=True):
+        n = max(1, len(str(s).split()))
+        return torch.arange(0, n + 1).unsqueeze(0)
+
+    def run_with_hooks(self, tokens, fwd_hooks=None, return_type=None):
+        seq = tokens.shape[1]
+        resid = torch.ones(1, seq, D_MODEL)
+        h = types.SimpleNamespace(name="blocks.0.hook_resid_post")
+        for _n, fn in (fwd_hooks or []):
+            resid = fn(resid, h)
+        return None
+
+    @contextlib.contextmanager
+    def hooks(self, fwd_hooks=None):
+        self._fwd = list(fwd_hooks or [])
+        self.hooks_entered += [n for n, _ in self._fwd]
+        try:
+            yield self
+        finally:
+            self._fwd = []
+
+    def generate(self, prompt, **kw):
+        # exécute les hooks sur un résiduel (comme pendant un forward de génération)
+        resid = torch.zeros(1, 3, D_MODEL)
+        h = types.SimpleNamespace(name="blocks.0.hook_resid_post")
+        for name, fn in self._fwd:
+            resid = fn(resid, h)
+            self.hook_calls.append(name)
+        total = float(resid.sum().item())
+        return f"{prompt} [resid_sum={total:.1f}]"   # le texte DÉPEND de la modif réelle
+
+
+def test_hook_actually_runs_during_generation():
+    m = _HookExecModel()
+    res = steer_feature(m, _FakeSAE(), feature_index=0, magnitude=3.0,
+                        probe_sentences=["alpha beta"], feature_stats=_STATS, config=_config())
+    r = res[0]
+    # hook enregistré avec le bon hook_name pendant la génération AFTER, et réellement appelé
+    assert "blocks.0.hook_resid_post" in m.hooks_entered
+    assert "blocks.0.hook_resid_post" in m.hook_calls
+    # text_after dépend de la modification effective du résiduel (≠ before non steeré)
+    assert r["text_after"] != r["text_before"]
+    assert "resid_sum=0.0" in r["text_before"]      # before : aucun hook → résiduel inchangé
+    assert "resid_sum=9.0" in r["text_after"]       # after : +3·e0 sur 3 positions → somme 9.0
+
+
+# ── v6.6.1 : validations de shapes / bornes ──
+
+def test_feature_index_out_of_bounds():
+    with pytest.raises(IndexError):
+        steer_feature(_FakeModel(), _FakeSAE(), feature_index=99, magnitude=1.0,
+                      probe_sentences=["x y"], feature_stats=_STATS, config=_config())
+
+
+def test_validate_shapes_dmodel_mismatch():
+    sae = _FakeSAE()
+    with pytest.raises(ValueError):
+        _validate_feature_and_shapes(sae, 0, torch.ones(1, 3, D_MODEL + 2))   # d_model incompatible
+    with pytest.raises(IndexError):
+        _validate_feature_and_shapes(sae, 999, torch.ones(1, 3, D_MODEL))     # feature_index OOB
+
+
+class _FakeSAETuple(_FakeSAE):
+    def encode(self, resid):
+        return (resid[..., :D_SAE], {"aux": 1})     # certaines versions renvoient un tuple
+
+
+def test_encode_returns_tuple_supported():
+    m = _FakeModel()
+    val = _measure_feature_activation(m, _FakeSAETuple(), m.to_tokens("alpha beta gamma"),
+                                      0, _config())
+    assert isinstance(val, float) and abs(val - 1.0) < 1e-6   # tuple toléré (acts[0] utilisé)
+
+
+def test_aggregate_handles_2d_and_3d():
+    acts3 = torch.zeros(1, 4, D_SAE); acts3[0, 2, 0] = 5.0    # [batch, seq, d_sae]
+    acts2 = torch.zeros(4, D_SAE);    acts2[2, 0] = 5.0       # [seq, d_sae]
+    assert abs(_aggregate_feature_activation(acts3, [0, 1, 2, 3], 0) - 5.0) < 1e-6
+    assert abs(_aggregate_feature_activation(acts2, [0, 1, 2, 3], 0) - 5.0) < 1e-6
+
+
+# ── v6.6.1 : device / dtype ──
+
+def test_hook_preserves_residual_dtype():
+    sae = _FakeSAE()                              # W_dec float32
+    assert sae.W_dec.dtype == torch.float32
+    hook = _make_residual_add_decoder_hook(sae, 0, 2.0, "all", _config())
+    for dt in (torch.float16, torch.bfloat16):
+        resid = torch.ones(1, 3, D_MODEL, dtype=dt)
+        out = hook(resid, types.SimpleNamespace(name="x"))
+        assert out.dtype == dt                    # dtype préservé malgré W_dec float32
+        assert torch.allclose(out[0, 0, 0].float(), torch.tensor(3.0), atol=1e-2)  # 1 + 2·1
+
+
+# 8. Intégration optionnelle (slow) — uniquement si MORPHOREPR_RUN_SLOW_STEERING=1
+@pytest.mark.skipif(os.environ.get("MORPHOREPR_RUN_SLOW_STEERING") != "1",
+                    reason="test slow opt-in : nécessite un petit modèle proxy + SAE public")
+def test_steer_feature_integration_slow():
+    # Skip PROPRE (message explicite) si le modèle/SAE proxy est indisponible — pas d'échec muet.
+    try:
+        import transformer_lens
+        from sae_lens import SAE
+        model = transformer_lens.HookedTransformer.from_pretrained("gpt2")
+        sae, _, _ = SAE.from_pretrained(release="gpt2-small-res-jb",
+                                        sae_id="blocks.6.hook_resid_post")
+    except Exception as e:
+        pytest.skip(f"modèle/SAE proxy indisponible ({type(e).__name__}: {e}) — test slow ignoré.")
+
+    cfg = _config(); cfg["steering"]["decoding"]["max_new_tokens"] = 8
+    res = steer_feature(model, sae, feature_index=0, magnitude=4.0,
+                        probe_sentences=["The weather today is"],
+                        feature_stats={"activation_p99": 5.0, "activation_mean": 1.0,
+                                       "activation_std": 1.0},
+                        config=cfg)
+    assert len(res) == 1
+    r = res[0]
+    assert isinstance(r["text_before"], str) and len(r["text_before"]) > 0
+    assert isinstance(r["text_after"], str) and len(r["text_after"]) > 0
+    assert isinstance(r["activation_before"], float)
+    assert isinstance(r["activation_after"], float)
+    assert isinstance(r["achieved_delta"], float)
+    assert r["ood_flag"] in (0, 1)
+```
+
 ---
 
 ## 10. Orchestrateur
@@ -4090,7 +4737,7 @@ def test_steering_charge_uniquement_le_modele_primaire(test_db):
 ```python
 # orchestrator.py
 """
-Orchestrateur MorphoRepr v6.5.3 — run gelé et auditable.
+Orchestrateur MorphoRepr v6.6.1 — run gelé et auditable.
 
 Usage :
     python orchestrator.py --config configs/run_v1.yaml
@@ -4893,7 +5540,7 @@ Correctif **final** de propagation multi-modèle. `model_run_id` était présent
 
 **3. `get_unconsumed_batch(model_run_id=None)` résout le legacy.** Comme `batches.model_run_id` est NOT NULL, un filtre `IS NULL` ne pouvait plus rien matcher. La fonction résout désormais `ensure_legacy_model_run(run_id)` quand `model_run_id is None` (et filtre par égalité). Un batch legacy enregistré via `register_batch(..., model_run_id=None)` est de nouveau retrouvable. Test `test_get_unconsumed_batch_legacy_retrouvable`.
 
-**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.5.3 — 500 features"` (résidu v0.28 supprimé).
+**4. Description YAML.** `description: "Full frozen run MorphoRepr v0.29 / procedure v6.6.1 — 500 features"` (résidu v0.28 supprimé).
 
 **5. Reprise : restauration des `model_run_ids`.** Nouvelle fonction `restore_model_run_ids(run_id, config)` qui reconstruit `config['_runtime']['model_run_ids']` depuis la DB (rattachement par `model_name` au rôle déclaré : primary/secondary/replication). Appelée dans la branche `--resume` de l'orchestrateur. `steerer.run` ne retombe donc plus sur un model_run legacy quand un modèle primaire existe déjà en DB. Test `test_resume_restaure_model_run_ids`.
 
@@ -4912,3 +5559,41 @@ Correctif d'une **dernière fuite multi-modèle en Phase 4**. Aucune modificatio
 **Résidus documentaires.** README intégré : « Procédure de test : v6.5.3 ». Changelog v6.5.1 reformulé en historique (verrouillage finalisé en v6.5.3). Papier v0.29 : « Voir la procédure de test v6.5.x (≥ v6.5.3) ».
 
 **Phase 4 toujours contractuelle.** `steer_feature()`, `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`) gardés par des flags `run_in_pipeline` : le correctif rend le *chargement* du steering model-aware, mais la Phase 4 n'est pas exécutable tant que `steer_feature()` n'est pas implémenté. La couche « modèles ouverts / reproductibilité » est désormais cohérente de bout en bout (schéma, sélection des features, reprise **et** Phase 4). Le prochain vrai chantier reste l'implémentation effective de `steer_feature()` et de `causal_scorer._load_pairs()`.
+
+---
+
+## 24. Changelog v6.5.3 → v6.6.0
+
+Extension fonctionnelle : **implémentation réelle de `steer_feature()` pour le chemin proxy open-weight**. Aucun changement de schéma SQLite. La couche multi-modèle v6.5.3 (`model_run_id`, `_load_encoded_random_features`, propagation) est **inchangée**.
+
+**`steer_feature()` implémenté (TransformerLens + SAE Lens, `residual_add_decoder`).** Pour chaque phrase-sonde : (1) génération `text_before` SANS intervention via `model.generate` (paramètres gelés de `config["steering"]["decoding"]`, greedy si `temperature=0`) ; (2) mesure `activation_before` par forward pass → résiduel au hook du SAE → `sae.encode` → agrégation (`max` par défaut) selon `token_position` ; (3-4) intervention `magnitude · sae.W_dec[feature_index]` ajoutée au résiduel aux positions sélectionnées, puis génération `text_after` AVEC le hook actif (même prompt, mêmes paramètres) ; (5) mesure `activation_after` ; (6) `achieved_delta = activation_after − activation_before` et `ood_flag = _is_ood(...)`. Plus aucun placeholder ; `text_after` n'est jamais `None` dans le chemin nominal.
+
+**Erreurs explicites (pas de simulation).** `proxy_model.enabled=false` → `NotImplementedError` (chemins nnsight / modèle de production non implémentés ; aucune interface publique ne garantit le steering interne d'un modèle propriétaire). `intervention_space='sae_latent_clamp'` → `NotImplementedError` (seul `residual_add_decoder` est implémenté). `NotImplementedError` est toujours propagée (échec bruyant) ; une erreur technique sur une probe est consignée (`error`, `text_after=None`) sans interrompre le batch — et fait, à dessein, échouer `assert_steering_ready`.
+
+**Fonctions ajoutées** (toutes dans `agents/steerer.py`) : `_get_hook_name_from_sae` (priorité `sae.cfg.hook_name`, repli `sae.cfg.hook_layer`), `_tokens_from_prompt`, `_position_indices` (logique pure), `_selected_token_positions`, `_aggregate_feature_activation`, `_make_residual_add_decoder_hook`, `_measure_feature_activation`, `_generate_text`. Robustesse aux variations d'API (capture du résiduel post-intervention via un hook de capture ajouté après le hook d'intervention ; `sae.encode` tolérant aux retours tuple ; gestion device/dtype).
+
+**`steerer.run()` inchangé** : reste strictement model-aware (`_load_encoded_random_features` non modifié), passe `mag_abs` à `steer_feature` comme avant. `model_run_id` non touché.
+
+**Tests ajoutés** (`tests/test_steer_feature.py`, mocks légers de l'API TransformerLens/SAE Lens) : non-placeholder + champs requis ; calcul du delta (1.0 → 2.5 ⇒ 1.5) ; OOD ; `sae_latent_clamp` et chemin non-proxy lèvent `NotImplementedError` ; sélection `all`/`last`/`content_only` ; hook ajoutant `magnitude·W_dec` aux seules positions sélectionnées ; `assert_steering_ready` (passe avec mocks, échoue si `text_after` == placeholder) ; test d'intégration **slow** opt-in (`MORPHOREPR_RUN_SLOW_STEERING=1`).
+
+**Phase 4 non validée scientifiquement.** `steering.run_in_pipeline` reste `false` par défaut (non activé automatiquement). `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`). La v6.6.0 rend la Phase 4 **exécutable pour le chemin proxy open-weight** et **testable** (`assert_steering_ready` peut passer sur un dev run contrôlé), mais ne produit aucun résultat causal : le scoring causal n'est pas opérationnel tant que `causal_scorer._load_pairs()` n'est pas implémenté. Les claims scientifiques du papier (v0.29) sont inchangés.
+
+**Limites restantes.** `sae_latent_clamp`, chemin nnsight / modèle de production, `run_intervention_controls()`, `causal_scorer._load_pairs()` ; pas d'exécution réelle en CI standard (test d'intégration opt-in) ; dépendance aux versions exactes de TransformerLens / SAE Lens (erreurs explicites si l'API attendue diffère).
+
+---
+
+## 25. Changelog v6.6.0 → v6.6.1
+
+Durcissement de l'implémentation v6.6.0 de `steer_feature()` (chemin proxy open-weight). **Aucun changement de schéma.** Philosophie v6.6.0 inchangée ; `model_run_id` et `_load_encoded_random_features` intacts ; Phase 4 toujours désactivée par défaut.
+
+**Compatibilité TransformerLens / SAE Lens — `_generate_text()` adaptatif.** Nouveau helper `_supported_generate_kwargs(model, desired)` : introspection de la signature de `model.generate` (`inspect.signature`) ; ne passe que les kwargs réellement supportés ; conserve tout si `**kwargs` (VAR_KEYWORD) ; lève `AttributeError` explicite si `model.generate` est absent. Mapping greedy propre (`temperature=0.0` et/ou `do_sample=False` selon le support ; `top_p`/`verbose` seulement s'ils sont acceptés). Les kwargs effectivement passés sont journalisés (`logger.debug`).
+
+**Sémantique `activation_before/after` clarifiée (Option A).** Documenté explicitement dans `_measure_feature_activation` et `steer_feature` : ce sont des `probe_activation_before/after`, mesurées sur le CONTEXTE de la phrase-sonde au hook du SAE, PAS sur la continuation générée. L'Option B (mesure sur le texte généré complet) mélangerait l'effet du changement de texte avec l'effet direct de l'intervention ; non retenue. Aucun changement de schéma.
+
+**Validations de shapes / bornes (erreurs explicites).** Nouveau helper `_validate_feature_and_shapes(sae, feature_index, resid)` : `feature_index ∈ [0, sae.W_dec.shape[0])` (sinon `IndexError`) ; `d_model` du décodeur == `d_model` du résiduel (sinon `ValueError` avec les formes observées). Appelé dans `_measure_feature_activation`. Contrôle de borne `feature_index` AUSSI dès l'entrée de `steer_feature` (avant toute génération). Forme de `sae.encode(resid)` validée (`[batch, seq, d_sae]` ou `[seq, d_sae]`) ; retour tuple toléré (`acts[0]`) et documenté.
+
+**Tests renforcés** (`tests/test_steer_feature.py`) : `_generate_text` filtre les kwargs non supportés (fake `generate` sans `do_sample`) et conserve tout si `**kwargs` ; `AttributeError` si `generate` absent ; **hook réellement exécuté pendant `model.generate`** (fake model qui exécute les hooks enregistrés ; `text_after` dépend de la modification effective du résiduel ; `hook_name` présent dans `hooks_entered`/`hook_calls`) ; `feature_index` hors borne → `IndexError` ; `d_model` incompatible → `ValueError` ; `sae.encode` tuple toléré ; agrégation 2D et 3D ; **dtype préservé** par le hook (W_dec float32, résiduel float16/bfloat16). Test slow opt-in (`MORPHOREPR_RUN_SLOW_STEERING=1`) renforcé : **skip propre** avec message si modèle/SAE indisponible, et vérifications `text_before/after` non vides, `activation_before/after`/`achieved_delta` numériques, `ood_flag ∈ {0,1}`.
+
+**Résidus documentaires.** Procédure : « Le README doit désormais pointer le papier v0.29 et la procédure v6.6.1 » ; commentaire YAML `steering.run_in_pipeline` reformulé (steer_feature implémenté pour le chemin proxy open-weight, Phase 4 désactivée tant que `assert_steering_ready` non validé en dev run **et** que le scoring causal reste contractuel) ; structure projet complétée (`utils/model_provider.py`, `utils/model_policy.py`, `tests/test_model_providers.py`, `tests/test_model_run_propagation.py`, `tests/test_steer_feature.py`, `api_utils.py` annoté legacy).
+
+**Réserves inchangées.** Phase 4 non activée automatiquement (`steering.run_in_pipeline=false`) et non validée scientifiquement. `run_intervention_controls()` et `causal_scorer._load_pairs()` restent des **contrats** (`NotImplementedError`) : aucun résultat causal n'est produit. `sae_latent_clamp` et le chemin nnsight / modèle de production restent non implémentés (erreurs explicites). Les claims scientifiques du papier (v0.29) sont inchangés. Limites restantes : pas d'exécution réelle en CI standard (test d'intégration opt-in) ; dépendance aux versions exactes de TransformerLens / SAE Lens (désormais atténuée par l'introspection, avec erreurs explicites si l'API attendue diffère).
