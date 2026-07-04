@@ -39,6 +39,7 @@ from agents import loader, ranker, cluster, labeler, consistency
 from agents import encoder, fidelity, steerer, predictor, causal_scorer, reporter
 from agents import baseline_predictor          # prédictions baselines Option B (v6.8.0)
 from agents import qualitative_judge          # juge LLM — analyses SECONDAIRES uniquement
+from agents import dev_summary                 # récapitulatif dev (v6.10.0) — aucun claim
 from baselines import shuffled as shuffled_baseline
 
 
@@ -271,15 +272,19 @@ PHASES = [
                           if cfg["steering"].get("run_in_pipeline", True)
                           else logger.warning("p4_steer désactivé (steering.run_in_pipeline=false) — steering non implémenté")),
                                                                      "Steering (traitement)"),
-    ("p4_controls",    lambda rid, cfg: steerer.run_intervention_controls(rid, cfg),
-                                                                     "Contrôles d'intervention"),
+    # ── Ordre Phase 4 corrigé (v6.10.0, étape 2 ; ADR-001) ────────────────────────────────
+    # steer → predict → predict_baselines → score → controls. Les prédictions et le steering
+    # primaire DOIVENT précéder p4_score (_load_pairs) ET p4_controls :
+    # assert_intervention_controls_ready() exige prédictions MorphoRepr + steering primaire en
+    # DB, et score_intervention_controls() recharge les couples primaires. L'ancien ordre
+    # (p4_controls immédiatement après p4_steer) échouait dès l'activation de la Phase 4.
     # Phases de scoring causal : gardées par causal_scoring.run_in_pipeline (sans prédictions ni
     # steering, elles n'ont pas de matière). _load_pairs() est implémenté (v6.7.0) ; les
     # comparaisons baselines restent gardées par causal_scoring.run_baseline_comparisons.
-    ("p4_predict",     lambda rid, cfg: (predictor.run(rid)
+    ("p4_predict",     lambda rid, cfg: (predictor.run(rid, cfg)
                           if cfg.get("causal_scoring", {}).get("run_in_pipeline", False)
                           else logger.warning("p4_predict désactivé (causal_scoring.run_in_pipeline=false)")),
-                                                                     "Prédiction causale"),
+                                                                     "Prédiction causale (MorphoRepr)"),
     # Prédictions BASELINES (Option B, v6.8.0) : gardées par baseline_predictions.enabled (défaut
     # false, NON auto-activé). Produit predictor_nl_labels / predictor_semantic_regex pour permettre
     # les comparaisons appariées dans p4_score (run_baseline_comparisons).
@@ -292,11 +297,21 @@ PHASES = [
                           if cfg.get("causal_scoring", {}).get("run_in_pipeline", False)
                           else logger.warning("p4_score désactivé (causal_scoring.run_in_pipeline=false)")),
                                                                      "Score causal DÉTERMINISTE (primaire)"),
-    # Juge LLM qualitatif : analyses SECONDAIRES uniquement (cas ambigus, audit)
+    ("p4_controls",    lambda rid, cfg: steerer.run_intervention_controls(rid, cfg),
+                                                                     "Contrôles d'intervention"),
+    # Juge LLM qualitatif : analyses SECONDAIRES uniquement (cas ambigus, audit). Garde PROPRE
+    # (v6.10.0) : qualitative_judge.enabled (défaut false), DÉCOUPLÉE du score primaire
+    # déterministe (causal_scoring.run_in_pipeline) — Règle 8. run_v1 : comportement net inchangé
+    # (la clé est absente → false, comme avant où causal_scoring.run_in_pipeline=false).
     ("p4_qualitative", lambda rid, cfg: (qualitative_judge.run(rid, cfg)
-                          if cfg.get("causal_scoring", {}).get("run_in_pipeline", False)
-                          else logger.warning("p4_qualitative désactivé (causal_scoring.run_in_pipeline=false)")),
+                          if cfg.get("qualitative_judge", {}).get("enabled", False)
+                          else logger.warning("p4_qualitative désactivé (qualitative_judge.enabled=false — juge LLM opt-in, secondaire)")),
                                                                      "Juge LLM qualitatif (secondaire)"),
+    # Récapitulatif DEV (v6.10.0) : run_mode=dev uniquement ; AUCUN claim scientifique.
+    ("p4_dev_summary", lambda rid, cfg: (dev_summary.run(rid, cfg)
+                          if cfg.get("run_mode") == "dev"
+                          else logger.info("p4_dev_summary ignoré (run_mode≠dev)")),
+                                                                     "Récapitulatif dev (aucun claim)"),
     ("p5_report",      lambda rid, cfg: reporter.run(rid),           "Synthèse"),
 ]
 

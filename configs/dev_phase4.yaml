@@ -1,0 +1,194 @@
+# configs/dev_phase4.yaml — v6.10.0 étape 2 (ADR-001)
+# SEULE configuration activant la Phase 4 end-to-end (steering → prédictions → score →
+# contrôles → récapitulatif dev). run_v1.yaml reste INCHANGÉ : Phase 4 off par défaut,
+# AUCUNE auto-activation. run_mode=dev ⇒ AUCUN claim scientifique (model_policy : aucun
+# modèle ouvert requis ; volumétrie réduite ; p4_dev_summary l'affiche explicitement).
+
+run_id_prefix: "dev_p4"
+description: "Dev run Phase 4 end-to-end (câblage) — aucun claim scientifique"
+
+# Reproductibilité (assouplie en dev UNIQUEMENT)
+git_commit: "FILL_BEFORE_LAUNCH"   # sentinel requis par initialize_run (allow_unpinned_commit=true)
+allow_unpinned_commit: true          # dev : HEAD courant accepté (jamais en pilot/full)
+lexicon_version: "v1.0"
+corpus_frozen: false
+
+run_mode: "dev"                      # ⇒ n_probe_sentences_pilot, model_policy permissive
+
+sampling:
+  use_temperature: false
+  temperature: null
+
+# Conservé pour models_json (archivage) ; AUCUN appel propriétaire n'est requis en dev.
+models:
+  semantic_judgment: "claude-sonnet-4-6"
+  scoring: "claude-haiku-4-5-20251001"
+  batch: false
+  max_tokens_judgment: 800
+  max_tokens_scoring: 400
+
+# Modèle primaire DEV : petit modèle local (Tier B). En dev, model_policy n'exige ni
+# artefacts ni modèle ouvert — mais on reste model-aware (model_run_id primaire partout).
+model_providers:
+  primary_reproducible:
+    tier: "B_open_weight"
+    provider: "local"
+    backend: "transformers"
+    model_name: "gpt2"
+    model_revision: null
+    precision: "float32"
+    license: "mit"
+    generation_params:
+      temperature: 0.0
+      top_p: 1.0
+      seed: 42
+      max_new_tokens: 64
+
+# Prompts : UNIQUEMENT les fichiers existants requis par les phases actives
+# (register_prompts hache chaque fichier listé et échoue s'il manque).
+prompts:
+  predictor:                "prompts/predictor_agent_v1.txt"
+  predictor_nl_labels:      "prompts/predictor_nl_labels_v1.txt"
+  predictor_semantic_regex: "prompts/predictor_semantic_regex_v1.txt"
+
+splits:
+  sampling_order: ["random", "easy", "hard"]
+  random: {n: 8, filter: "uniform"}
+  easy:   {n: 0, min_interp_score: 0.7}
+  hard:   {n: 0, max_interp_score: 0.5}
+primary_split: "random"
+
+clustering:
+  k: 2
+  kmeans_random_state: 42
+  umap_random_state: 42
+
+steering:
+  run_in_pipeline: true              # ← Phase 4 ACTIVÉE (seul config à le faire)
+  magnitude_mode: "p99_relative"
+  primary_magnitude_rel: 1.0
+  dose_response_rel: [0.0, 1.0]      # courbe raccourcie en dev
+  legacy_absolute_magnitude: 5
+  intervention_space: "residual_add_decoder"
+  n_probe_sentences: 50
+  n_probe_sentences_pilot: 4         # dev : 4 sondes neutres (fichier : 20 disponibles)
+  n_domain_probes_per_category: 4
+  generations_per_probe: 1
+  decoding:
+    temperature: 0.0
+    max_new_tokens: 24
+    archive_generation_params: true
+  primary_probe_family: "neutral"
+  use_domain_probes_in_primary: false
+  domain_probes_as_secondary: true
+  probe_families: ["neutral"]
+  domain_probe_categories: []
+  n_subsample_for_curve: 2
+  layer_mode: "per_feature"
+  token_position: "all"
+  ood_tau: 3.0
+  ood_k: 4.0
+  ood_epsilon: 1.0e-3
+  ood_delta_max: 5.0
+  exclude_ood_from_primary: true
+
+stochastic_decoding:
+  enabled: false
+  temperature: 0.7
+  generations_per_probe: 3
+
+causal_scoring:
+  run_in_pipeline: true              # p4_predict + p4_score actifs
+  run_baseline_comparisons: true     # comparaisons appariées vs baselines (Option B)
+  strict_baselines: true             # baseline demandée absente → RuntimeError (garde testée)
+
+# Prédicteur MorphoRepr (p4_predict)
+predictions:
+  run_number: 1
+  encoder_run_number: 1
+  max_tokens: 512
+
+# Prédictions baselines (p4_predict_baselines, Option B)
+baseline_predictions:
+  enabled: true
+  methods:
+    - nl_labels
+    - semantic_regex
+  run_number: 1
+  require_existing_baseline_annotations: true
+  skip_missing_annotations: false
+  max_tokens: 512
+
+# Juge LLM qualitatif : OPT-IN propre (v6.10.0), découplé du score déterministe.
+qualitative_judge:
+  enabled: false
+
+proxy_model:
+  enabled: true
+  name: "gpt2"
+  sae_release: "gpt2-small-res-jb"
+
+baselines:
+  - nl_labels
+  - semantic_regex
+
+intervention_controls:
+  run_in_pipeline: true              # p4_controls actif (5 contrôles implémentés)
+  strict_controls: true
+  score_controls: true
+  controls_to_run:
+    - random_feature_same_layer
+    - matched_activation_freq
+    - random_direction_same_norm
+    - negative_steering
+    - prompt_only
+  prompt_only_annotation_source: "morphorepr"
+  random_direction_seed_mode: "feature_uid"
+  matched_activation_freq_log_eps: 1.0e-9
+
+shuffle_control:
+  n_repeats: 2
+  within_split: true
+  max_term_diff: 1
+  preserve_coefficients: true
+  use_llm_judge: false
+  llm_qualitative_audit_fraction: 0.0
+  evaluation_split: "random"
+
+budget:
+  max_cost_usd: 5.0
+  alert_at_usd: 2.0
+  abort_on_exceed: true
+  estimate_before_submit: true
+
+thresholds:
+  coverage_easy_min: 0.65
+  coverage_random_min: 0.45
+  coverage_hard_min: 0.20
+  fidelity_auc_min: 0.60
+  causal_validity_floor: 0.50
+  nim_delta: 0.05
+  root_jaccard_min: 0.60
+  human_audit_jaccard_min: 0.60
+  free_root_rate_max: 5.0
+
+stats:
+  causal_score: "macro_f1_global_pairs"
+  per_feature_macro_f1: "secondary"
+  comparison: "paired"
+  bootstrap_resamples: 500           # dev : IC indicatifs, jamais cités
+  bootstrap_cluster_unit: "feature"
+  stratify_by_split: true
+  superiority_vs: ["nl_labels"]
+  non_inferiority_vs: ["semantic_regex"]
+  end_to_end_utility: false
+  uncovered_policy: "abstention_or_zero"
+  multiple_comparison_primary: "holm"
+  multiple_comparison_exploratory: "benjamini_hochberg"
+  prediction_failure_policy: "zero_for_property"
+
+batch:
+  poll_interval_seconds: 60
+  max_wait_seconds: 86400
+
+seed: 42

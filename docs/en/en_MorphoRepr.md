@@ -845,12 +845,12 @@ Given a MorphoRepr expression for a feature, you must predict which
 of the following output properties will measurably change when this
 feature is amplified on neutral probe sentences.
 
-ROBUST PROPERTIES (primary; report these first):
+ROBUST PROPERTIES (primary; report these first — canonical set,
+identical for every baseline predictor):
 - negation_presence: change in negation markers
-- past_tense: change in past-tense verb forms
-- future_tense: change in future-tense verb forms
-- conditional_modality: change in conditional constructions
+- tense: shift toward past vs non-past tense verb forms
 - code_presence: change in code tokens or technical symbols
+- conditional_modality: change in conditional constructions
 
 SEMI-ROBUST PROPERTIES (secondary):
 - negative_valence: change in negative sentiment words

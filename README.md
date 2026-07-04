@@ -29,7 +29,7 @@ Read approximately as: *“not having acted physically / action-negation in a pa
 
 MorphoRepr does **not** claim to decode the internal representations of LLMs. It encodes structured, inspectable hypotheses about SAE features. These hypotheses must be evaluated through fidelity tests, activation prediction, and causal intervention experiments on a model where SAE activations are accessible.
 
-The current paper is **v0.30** (`docs/fr/fr_MorphoRepr.md`; the English translation `docs/en/en_MorphoRepr.md` is currently at v0.29). The current test procedure is **v6.9.0**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
+The current paper is **v0.30**, in French (`docs/fr/fr_MorphoRepr.md`) and English (`docs/en/en_MorphoRepr.md`). The current test procedure is **v6.9.0**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
 
 Starting with paper v0.29 and procedure v6.5.x, the protocol adopts an **open-weight reproducibility policy**: primary scientific claims are designed to be reproducible with open-weight or fully open models, and proprietary models (e.g. Anthropic) are used only as a secondary reference / comparison condition. See [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models).
 
@@ -288,13 +288,18 @@ The procedure includes:
 
 Remaining Phase 4 contract:
 
-- `diffmean_reft` (supervised DiffMean/ReFT intervention control) remains **not implemented** (raises `NotImplementedError` if enabled).
+- `diffmean_reft` (supervised DiffMean/ReFT intervention control) remains **not implemented** (raises `NotImplementedError` if enabled);
+- Phase 1–3 agents (`loader`, `ranker`, `cluster`, `labeler`, `consistency`, `encoder`, `fidelity`, annotation baselines) are still stubs — the end-to-end dev test seeds them with deterministic fakes;
+- the deterministic classifiers `tense` / `code_presence` / `conditional_modality` are **v1 heuristics to be calibrated before any pilot** (`classifiers/calibration`, confusion matrices — paper §4.2);
+- the real-model dev smoke (gpt2 + `gpt2-small-res-jb`) is opt-in (`MORPHOREPR_RUN_DEV_PHASE4=1`) and must be executed in an environment with HF downloads.
 
 Baseline prediction (**Option B**, v6.8.0) is **wired for `nl_labels` (superiority) and `semantic_regex` (non-inferiority)** via `agents/baseline_predictor.py`: from the annotations in the `baselines` table, baseline-specific prompts (no MorphoRepr terminology) produce canonical direction predictions stored in `agent_outputs` under `predictor_nl_labels` / `predictor_semantic_regex`. The steering is **not** re-run — only the prediction path differs — which is what makes the paired comparison valid. With `causal_scoring.run_baseline_comparisons=true` on a controlled dev run, `causal_scorer.run()` then computes each baseline's own score, the paired difference, the verdict and the coverage, guarded by `assert_baseline_predictions_ready()` (strict → `RuntimeError`; otherwise explicit skip **without a verdict** — never a false `pass`/`fail`). `keyword_tags` and `morphorepr_shuffled` remain **not wired** (explicit `NotImplementedError`). Baseline comparisons stay **off by default** (`run_baseline_comparisons=false`); no LLM judge is used in the primary metric, and **no full scientific result is claimed**.
 
 Intervention controls (**v6.9.0**) are now **implemented** via `steerer.run_intervention_controls()` for five causal controls — `random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only` — producing real `text_before`/`text_after` scored by the **same deterministic path** as the treatment. This is the **first schema change since v6.5.3**: a dedicated `intervention_control_results` table (a control sometimes has a distinct target feature and control feature; never mixed into `steering_results`). `causal_scorer.load_intervention_control_pairs()` + `score_intervention_controls()` write **secondary metrics only** (`intervention_control_macro_f1:<name>`, `intervention_control_paired_diff:<name>` — never the primary score), with the paired primary − control difference (feature-clustered bootstrap) and coverage. `diffmean_reft` is **not implemented** (`NotImplementedError` if enabled). Strictly model/split/`intervention_space`-aware; OOD policy respected; no LLM judge. Controls stay **off by default** (`intervention_controls.run_in_pipeline=false`).
 
-Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`, `causal_scoring.run_in_pipeline=false`, `intervention_controls.run_in_pipeline=false`) and is **not auto-enabled**; `assert_steering_ready()` must pass on a controlled dev run before any pilot/full run with steering. The v6.9.0 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering, a minimal MorphoRepr causal score, baseline comparisons, and intervention controls on the open-weight proxy**, but it does **not** claim full causal validation: no published scientific result is asserted yet. The scientific claims of the paper (v0.30) are unchanged.
+**Phase 4 end-to-end dev orchestration (v6.10.0, step 2 — ADR-001)** is now **wired**: the phase order is fixed (`p4_steer → p4_predict → p4_predict_baselines → p4_score → p4_controls → p4_qualitative → p4_dev_summary → p5_report` — predictions and primary steering must precede scoring and controls, as required by `assert_intervention_controls_ready()`); `agents/predictor.py` is implemented as a strict mirror of the baseline predictor (**MorphoRepr expression only** as input, never the NL description — Rule 7); the three remaining robust classifiers (`tense`, `code_presence`, `conditional_modality`) are implemented as deterministic pure-python v1 heuristics; `p4_qualitative` gets its own opt-in gate (`qualitative_judge.enabled`, default false — the secondary LLM judge is decoupled from the deterministic primary score, Rule 8); and a new dev-only `p4_dev_summary` phase (`agents/dev_summary.py`) writes a recap with `no_scientific_claim: true`. `configs/dev_phase4.yaml` is the **only** configuration enabling the sequence (`configs/dev_phase4_minimal.yaml` for a quick smoke); `run_v1.yaml` is unchanged. The wiring is proven by `tests/test_pipeline_phase4_e2e.py`: real `run_pipeline` (config/prompt/lexicon hashing, model runs, budget checks), fake-seeded Phases 1–3, real Phase 4 agents and guards, idempotent resume, a controlled `strict_baselines` failure, a pre-registered neutral-probes quality gate, plus an opt-in real-proxy smoke. See `docs/fr/adr/ADR-001-phase4-orchestrator.md` and `docs/fr/morphorepr_test_procedure_v6.10.0.md`.
+
+Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`, `causal_scoring.run_in_pipeline=false`, `intervention_controls.run_in_pipeline=false`) and is **not auto-enabled** — `configs/dev_phase4.yaml` (`run_mode: dev`) is the only configuration that turns the full sequence on; `assert_steering_ready()` must pass on a controlled dev run before any pilot/full run with steering. The v6.9.0 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering, a minimal MorphoRepr causal score, baseline comparisons, and intervention controls on the open-weight proxy**, but it does **not** claim full causal validation: no published scientific result is asserted yet. The scientific claims of the paper (v0.30) are unchanged.
 
 ---
 
@@ -308,7 +313,9 @@ morphorepr-pipeline/
 ├── configs/
 │   ├── dev_run.yaml
 │   ├── pilot_run.yaml
-│   └── run_v1.yaml
+│   ├── run_v1.yaml
+│   ├── dev_phase4.yaml         # only config enabling the Phase 4 dev sequence
+│   └── dev_phase4_minimal.yaml # quick smoke variant
 ├── db/
 │   ├── schema.sql            # includes the model_runs table (v6.5.x)
 │   ├── features.db
@@ -330,10 +337,11 @@ morphorepr-pipeline/
 │   ├── encoder.py
 │   ├── fidelity.py
 │   ├── steerer.py
-│   ├── predictor.py
+│   ├── predictor.py           # MorphoRepr causal predictor (v6.10.0 step 2)
+│   ├── dev_summary.py         # dev-only Phase 4 recap (p4_dev_summary)
 │   ├── baseline_predictor.py
 │   ├── causal_scorer.py
-│   ├── judge.py
+│   ├── qualitative_judge.py   # secondary LLM judge (opt-in gate)
 │   └── reporter.py
 ├── classifiers/
 │   ├── negation.py
@@ -376,7 +384,8 @@ morphorepr-pipeline/
 │   ├── test_causal_scorer.py
 │   ├── test_baseline_predictions.py
 │   ├── test_intervention_controls.py
-│   └── test_pipeline_e2e.py
+│   ├── test_orchestrator_phases.py
+│   └── test_pipeline_phase4_e2e.py
 ├── data/
 │   └── probes/
 │       ├── probes_neutral.txt
@@ -402,7 +411,7 @@ This repository accompanies the v0.30 position paper and the v6.9.0 test procedu
 | Component | Status |
 |-----------|--------|
 | Paper v0.29 | Written / current working version |
-| Test procedure v6.9.0 | Stable for dev plumbing; steer_feature(), causal scoring, baseline predictions, and intervention controls implemented (proxy path) |
+| Test procedure v6.9.0 | Stable for dev plumbing; steer_feature(), causal scoring, baseline predictions, and intervention controls implemented (proxy path); Phase 4 dev orchestration wired end-to-end (repo v6.10.0 step 2) |
 | Formal grammar and parser specification | Available |
 | Predefined morpheme inventory | Available |
 | Free-root governance | Specified |
@@ -413,7 +422,7 @@ This repository accompanies the v0.30 position paper and the v6.9.0 test procedu
 | `ModelProvider` inference abstraction | Specified |
 | Batch API crash-safety design | Specified |
 | Prompt, lexicon, and corpus hashing | Specified |
-| Output property classifiers | Specified |
+| Output property classifiers | Deterministic v1 implemented (`negation` spaCy-based; `tense` / `code_presence` / `conditional_modality` pure-python heuristics, **to calibrate before pilot**) |
 | Classifier calibration protocol | Specified |
 | Shuffle baseline | Specified |
 | Human audit | Planned |
@@ -425,7 +434,7 @@ This repository accompanies the v0.30 position paper and the v6.9.0 test procedu
 | Phase 4 — Causal scoring | `causal_scorer._load_pairs()` implemented (MorphoRepr + baselines, model/split/OOD-aware); paired comparisons runnable; baseline comparisons off by default; disabled in pipeline by default |
 | Phase 4 — Baseline prediction (Option B) | `nl_labels` + `semantic_regex` wired (`agents/baseline_predictor.py`); `keyword_tags` / `morphorepr_shuffled` not wired; off by default (`baseline_predictions.enabled=false`) |
 | Phase 4 — Intervention controls | Implemented for 5 controls (`random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only`); dedicated `intervention_control_results` table; secondary metrics only; `diffmean_reft` not implemented; off by default |
-| Phase 4 — End-to-end dev orchestrator | Planned (v6.10.0): explicit opt-in dev sequence `p4_steer → p4_predict → p4_predict_baselines → p4_score → p4_controls → p4_dev_summary`; phase order to be fixed (controls after scoring); off by default, no full-run auto-activation |
+| Phase 4 — End-to-end dev orchestrator | **Implemented (v6.10.0 step 2, ADR-001)**: opt-in dev sequence `p4_steer → p4_predict → p4_predict_baselines → p4_score → p4_controls → p4_qualitative → p4_dev_summary`; `agents/predictor.py` + `agents/dev_summary.py` wired; `configs/dev_phase4.yaml` sole enabling config (`run_v1.yaml` unchanged); end-to-end orchestration test (fake-seeded p1–p3, real guards, idempotent resume) + opt-in real-proxy smoke |
 | Phase 5 — Reporting | Planned |
 | Full scientific results | Not yet available |
 
@@ -433,11 +442,13 @@ This repository accompanies the v0.30 position paper and the v6.9.0 test procedu
 
 Through v6.9.0, the test-procedure Markdown embedded the implementation code inline. **From v6.10.0 the Python repository becomes the canonical source of code** (docs-as-code): the Markdown is retained for the scientific protocol, methodological rules, architecture decisions (ADR), and changelog, while executable code, `pytest` tests, configs, prompts, and `db/schema.sql` live as real versioned files. No move to DOCX/PDF — Markdown plus versioned code/config is the right form for a reproducible scientific protocol.
 
-The next milestone (v6.10.0) materializes the repository described above, ports the existing tests to native `pytest` (with `conftest.py`), fixes the Phase 4 phase order (intervention controls must run **after** MorphoRepr prediction and scoring), and wires an opt-in end-to-end Phase 4 dev run via `configs/dev_phase4.yaml`, validated by a fakes-backed orchestration test plus a real opt-in test (`MORPHOREPR_RUN_DEV_PHASE4=1`). Phase 4 stays disabled by default in `configs/run_v1.yaml`; no full-run claim is auto-enabled. Rationale and the full plan: `docs/fr/morphorepr_note_etape_orientation_v6.10.0.md` (English: `docs/en/en_morphorepr_milestone_note_orientation_v6.10.0.md`).
+The v6.10.0 milestone (repository materialization + Phase 4 dev orchestrator) is **delivered** — see the step paragraphs below. Next milestones: implement the Phase 1–3 agents (loader/ranker/clustering/lexicon induction/encoder/fidelity + annotation baselines), calibrate the deterministic classifiers (`classifiers/calibration`, mandatory before any pilot), and execute a real dev run of `configs/dev_phase4.yaml` on the open-weight proxy. Rationale and the original plan: `docs/fr/morphorepr_note_etape_orientation_v6.10.0.md` (English: `docs/en/en_morphorepr_milestone_note_orientation_v6.10.0.md`).
 
 **v6.10.0 — step 1 done (repository materialized).** The Python code has been extracted from the v6.9.0 procedure into real files (`agents/`, `utils/`, `classifiers/`, `baselines/`, `db/schema.sql`, `configs/run_v1.yaml`, `tests/`) and the test suite now runs under native `pytest` (no extraction harness): **121 passed, 1 skipped** (the opt-in slow steering test). The frozen v6.9.0 procedure remains the methodological reference (`docs/fr/morphorepr_test_procedure.md`; English translation: `docs/en/morphorepr_test_procedure.md`). Modules not implemented as code blocks in the procedure (e.g. `agents/{loader,encoder,ranker,…}`, `classifiers/{tense,code_presence,modality}`, annotation baselines) are present as clearly-marked stubs, to be implemented in the Phase 4 orchestrator step.
 
 **v6.10.0 — step 1 cleanup.** Housekeeping pass before the orchestrator milestone: added `.gitignore`; fixed `utils.config_utils.hash_config()` to hash the YAML **content** (it previously hashed the path string passed by the orchestrator, defeating the config-integrity guard — now covered by `tests/test_config_hash.py`); added a strict-xfail tripwire encoding the **target** Phase-4 order (`tests/test_orchestrator_phases.py` — the known ordering bug stays in place until step 2); materialized the two baseline predictor prompts verbatim from the frozen procedure into `prompts/` (see `prompts/README.md`); added a minimal `db/lexicon.json`, plus `data/probes/.gitkeep` and `logs/.gitkeep` (the orchestrator opens `logs/pipeline.log` at import time). Documentation is now bilingual under `docs/fr/` and `docs/en/`, with course material under `docs/ressources/`.
+
+**v6.10.0 — step 2 (Phase 4 orchestrator, ADR-001).** The Phase 4 sequence is wired end-to-end for an opt-in dev run: fixed phase order (`p4_steer → p4_predict → p4_predict_baselines → p4_score → p4_controls → p4_qualitative → p4_dev_summary`), real `agents/predictor.py` (strict mirror of the baseline predictor; **MorphoRepr expression only** as input), deterministic v1 classifiers for `tense` / `code_presence` / `conditional_modality`, a clean opt-in gate for the secondary LLM judge (`qualitative_judge.enabled`, decoupled from the deterministic primary score), a dev-only `p4_dev_summary` recap (`no_scientific_claim: true`), pre-registered neutral probes (`data/probes/probes_neutral.txt`, zero-signal quality gate), and `configs/dev_phase4.yaml` / `configs/dev_phase4_minimal.yaml` as the only enabling configurations — `configs/run_v1.yaml` unchanged. Validated by `tests/test_pipeline_phase4_e2e.py` (real `run_pipeline` with fake-seeded Phases 1–3, real guards, idempotent resume, controlled `strict_baselines` failure) plus an opt-in real-proxy smoke (`MORPHOREPR_RUN_DEV_PHASE4=1`); the step-1 strict-xfail tripwire is retired and the target order is now a passing test. Suite: **132 passed, 2 skipped**. Decision record: `docs/fr/adr/ADR-001-phase4-orchestrator.md`; short procedure note: `docs/fr/morphorepr_test_procedure_v6.10.0.md` (FR only for now — EN translation pending).
 
 ---
 
@@ -448,7 +459,7 @@ The next milestone (v6.10.0) materializes the repository described above, ports 
 - **HAL:** https://hal.science/hal-05649380
 - **arXiv:** https://arxiv.org/abs/2606.XXXXX
 - **Source (FR, current):** `docs/fr/fr_MorphoRepr.md` (v0.30)
-- **Source (EN):** `docs/en/en_MorphoRepr.md` (v0.29 — translation update pending)
+- **Source (EN):** `docs/en/en_MorphoRepr.md` (v0.30)
 - **Test procedure:** `docs/fr/morphorepr_test_procedure.md` (v6.9.0, frozen) · EN: `docs/en/morphorepr_test_procedure.md`
 - **Orientation note (v6.10.0):** `docs/fr/morphorepr_note_etape_orientation_v6.10.0.md` · EN: `docs/en/en_morphorepr_milestone_note_orientation_v6.10.0.md`
 
