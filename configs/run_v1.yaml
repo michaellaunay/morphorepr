@@ -1,0 +1,304 @@
+# configs/run_v1.yaml
+
+run_id_prefix: "morphorepr_v1"
+description: "Full frozen run MorphoRepr v0.29 / procedure v6.9.0 — 500 features"
+
+# Reproductibilité
+git_commit: "FILL_BEFORE_LAUNCH"    # vérifié contre le HEAD Git réel à l'init
+allow_unpinned_commit: false        # run gelé : le commit DOIT être épinglé (cf. orchestrator)
+lexicon_version: "v1.0"
+corpus_frozen: true
+
+# Politique de sampling
+# temperature n'est PAS envoyée à l'API par défaut pour éviter les HTTP 400
+# sur les modèles récents qui rejettent les paramètres de sampling non par défaut.
+# Documenté ici pour le papier ; non transmis sauf si use_temperature: true.
+sampling:
+  use_temperature: false
+  temperature: null
+
+# Modèles (identifiants exacts API Anthropic) — conservés pour la condition propriétaire
+# SECONDAIRE et les outils d'assistance. NE PAS utiliser comme seule base des claims primaires.
+models:
+  semantic_judgment: "claude-sonnet-4-6"
+  scoring: "claude-haiku-4-5-20251001"
+  batch: true
+  max_tokens_judgment: 800
+  max_tokens_scoring: 400
+
+# ─────────────────────────────────────────────
+# Reproductibilité par modèles ouverts (Règle 11). Les agents passent par ModelProvider
+# (Section 5 bis), jamais par anthropic.Anthropic() directement. Les claims PRIMAIRES sont
+# calculés sur primary_reproducible (Tier A/B) ; Anthropic est SECONDAIRE.
+# NB : les model_name ci-dessous sont des EXEMPLES (Règle 11 bis) ; le full frozen run doit
+# figer une liste exacte de modèles réellement disponibles et licenciés pour la recherche.
+# ─────────────────────────────────────────────
+model_providers:
+  primary_reproducible:
+    tier: "B_open_weight"
+    provider: "local"
+    backend: "vllm"                 # "vllm" | "transformers" | "llama_cpp"
+    model_name: "Qwen/Qwen3-8B-Instruct"
+    model_revision: "FILL_EXACT_HF_REVISION"
+    tokenizer_revision: "FILL_EXACT_HF_REVISION"
+    weights_sha256: "FILL_BEFORE_FULL_RUN"
+    tokenizer_sha256: "FILL_BEFORE_FULL_RUN"
+    license: "FILL"
+    precision: "bfloat16"
+    quantization: null
+    inference_container_hash: "FILL_BEFORE_FULL_RUN"
+    deterministic_generation:
+      temperature: 0.0
+      top_p: 1.0
+      seed: 42
+      max_new_tokens: 512
+
+  secondary_proprietary:
+    tier: "C_proprietary_api"
+    provider: "anthropic"
+    model_name: "claude-sonnet-4-6"
+    api_version: "FILL"
+    role: "secondary_reference"
+    use_for_primary_claims: false
+
+  optional_cross_model_replication:
+    enabled: true
+    models:
+      - provider: "local"
+        tier: "B_open_weight"
+        backend: "vllm"
+        model_name: "mistralai/Mistral-7B-Instruct-v0.3"
+        model_revision: "FILL"
+        role: "replication"
+      - provider: "local"
+        tier: "B_open_weight"
+        backend: "vllm"
+        model_name: "meta-llama/Llama-3.1-8B-Instruct"
+        model_revision: "FILL"
+        role: "replication"
+      - provider: "local"
+        tier: "A_or_B_open"
+        backend: "transformers"
+        model_name: "allenai/OLMo-2-1124-7B-Instruct"
+        model_revision: "FILL"
+        role: "replication"
+
+# Prompts
+prompts:
+  label_agent:    "prompts/label_agent_v1.txt"
+  encoder:        "prompts/encoder_agent_v1.txt"
+  predictor:      "prompts/predictor_agent_v1.txt"
+  predictor_nl_labels:      "prompts/predictor_nl_labels_v1.txt"       # baseline NL (Option B, v6.8.0)
+  predictor_semantic_regex: "prompts/predictor_semantic_regex_v1.txt"  # baseline Semantic Regex (Option B)
+  fidelity_judge: "prompts/fidelity_judge_v1.txt"
+  causal_judge:   "prompts/causal_judge_v1.txt"
+
+# Splits du corpus (DISJOINTS). ORDRE D'ÉCHANTILLONNAGE : random EN PREMIER, uniformément
+# sur l'ensemble des features, puis retiré du pool ; easy/hard ensuite dans le reste.
+# Ainsi le random reste représentatif (et non un "middle set").
+splits:
+  sampling_order: ["random", "easy", "hard"]   # random échantillonné AVANT easy/hard
+  random: {n: 200, filter: "uniform"}           # uniforme sur TOUT le corpus, en premier
+  easy:   {n: 200, min_interp_score: 0.7}       # dans le pool restant
+  hard:   {n: 100, max_interp_score: 0.5}       # dans le pool restant
+primary_split: "random"              # tous les seuils go/no-go évalués ici
+
+# Clustering (Phase 2) — graines fixées pour la reproductibilité de l'induction du lexique
+clustering:
+  k: 20
+  kmeans_random_state: 42
+  umap_random_state: 42
+
+# Steering SAE
+steering:
+  # `steer_feature()` est IMPLÉMENTÉ pour le chemin proxy open-weight (TransformerLens + SAE
+  # Lens, Section 7), et `causal_scorer._load_pairs()` + les prédictions baselines Option B
+  # (nl_labels, semantic_regex) sont câblés. Phase 4 reste néanmoins DÉSACTIVÉE par défaut tant
+  # que (a) `assert_steering_ready()` n'a pas été validé sur un dev run (proxy_model.enabled=true)
+  # ET (b) les comparaisons baselines / contrôles d'intervention n'ont pas été exécutés dans un
+  # dev run contrôlé (baseline_predictions.enabled + run_baseline_comparisons ;
+  # intervention_controls.run_in_pipeline — IMPLÉMENTÉ en v6.9.0, off par défaut). Passer à true UNIQUEMENT après (a).
+  run_in_pipeline: false
+  # Magnitude PRIMAIRE normalisée par feature : multiple du 99e percentile (activation_p99).
+  # La magnitude absolue +5 (Anthropic, 2024) est conservée comme condition SECONDAIRE/historique.
+  magnitude_mode: "p99_relative"     # "p99_relative" (primaire) | "absolute" (secondaire)
+  primary_magnitude_rel: 1.0         # 1.0 × activation_p99 du feature (magnitude VISÉE)
+  dose_response_rel: [0.0, 0.5, 1.0, 2.0]   # courbe dose-réponse (multiples de p99)
+  legacy_absolute_magnitude: 5       # condition secondaire historique
+  # Espace d'intervention : ajouter au résiduel un multiple du décodeur NE GARANTIT PAS
+  # une hausse de l'activation latente du même facteur. On rapporte donc le DELTA OBTENU
+  # (achieved_delta), pas seulement la magnitude visée, et on supporte deux modes :
+  intervention_space: "residual_add_decoder"  # "residual_add_decoder" | "sae_latent_clamp"
+  n_probe_sentences: 50              # métrique PRIMAIRE (n_probe_sentences_pilot en dev/pilot)
+  n_probe_sentences_pilot: 20        # utilisé si run_mode ∈ {dev, pilot} (cf. run_mode global)
+  n_domain_probes_per_category: 20   # sondes compatibles par catégorie de domaine
+  # PRIMAIRE déterministe : 1 génération + décodage greedy (temperature=0). Pour amortir la
+  # stochasticité, utiliser stochastic_decoding (analyse SECONDAIRE) plutôt que de multiplier
+  # les générations en greedy (qui seraient identiques).
+  generations_per_probe: 1
+  decoding:
+    temperature: 0.0                 # greedy déterministe ; rapporté dans le papier
+    max_new_tokens: 64
+    archive_generation_params: true  # paramètres exacts archivés avec les sorties
+  # Volumétrie maîtrisée (Section 6) : les sondes domaine sont une analyse SECONDAIRE par
+  # défaut (ventilées par catégorie), PAS dans le score primaire.
+  primary_probe_family: "neutral"
+  use_domain_probes_in_primary: false
+  domain_probes_as_secondary: true
+  # Deux familles de sondes (pré-enregistrées ; les compatibles NE doivent PAS donner la réponse)
+  probe_families: ["neutral", "domain_compatible"]
+  domain_probe_categories: ["code", "social", "temporal", "spatial", "affect", "data"]
+  n_subsample_for_curve: 50          # sous-échantillon seedé pour la dose-réponse
+  layer_mode: "per_feature"          # cible la couche propre du feature (colonne `layer`)
+  token_position: "all"              # "all"|"last"|"content_only"
+  # OOD : critère MIXTE pré-enregistré (robuste aux p99 faibles / distributions asymétriques).
+  # OOD si activation_after > max(p99·tau, mean + k·std, epsilon)  OU
+  #        |activation_after - activation_before| > delta_max · p99
+  ood_tau: 3.0
+  ood_k: 4.0
+  ood_epsilon: 1.0e-3
+  ood_delta_max: 5.0
+  exclude_ood_from_primary: true     # instances ood_flag=1 exclues de la métrique primaire
+
+# Décodage stochastique — analyse SECONDAIRE uniquement (amortir la stochasticité).
+# Le PRIMAIRE reste greedy déterministe (steering.decoding.temperature=0, 1 génération).
+stochastic_decoding:
+  enabled: false
+  temperature: 0.7
+  generations_per_probe: 3
+
+# Mode d'exécution : ajuste la volumétrie des sondes (dev/pilot → n_probe_sentences_pilot).
+run_mode: "full"                     # "dev" | "pilot" | "full"
+
+# Scoring causal (Phase 4) — métrique primaire déterministe. `causal_scorer._load_pairs()` est
+# IMPLÉMENTÉ (assemblage prédiction/observation, model-aware, split-aware, OOD-aware). Le scoring
+# reste DÉSACTIVÉ par défaut (`run_in_pipeline=false`) ; il gère p4_predict, p4_score ET
+# p4_qualitative (sans prédictions ni steering, ces phases n'ont pas de matière). Les prédictions
+# baselines (Option B, v6.8.0) sont câblées pour nl_labels et semantic_regex (module
+# baseline_predictor) ; les comparaisons appariées restent gardées par run_baseline_comparisons.
+causal_scoring:
+  run_in_pipeline: false
+  run_baseline_comparisons: false    # true uniquement si les prédictions baselines existent (Option B)
+  strict_baselines: true             # true → une baseline demandée mais absente lève RuntimeError ;
+                                     # false → skip explicite SANS verdict (jamais de faux pass/fail)
+
+# Prédictions BASELINES (Option B, v6.8.0). Produit des agent_outputs de prédiction de directions
+# pour les baselines, au MÊME format que MorphoRepr (agent_name predictor_<méthode>), à partir des
+# annotations de la table `baselines`. Désactivé par défaut ; en full run, ne pas activer sans gel
+# des prompts/hashes. Seules nl_labels et semantic_regex sont branchées en v6.8.0.
+baseline_predictions:
+  enabled: false
+  methods:
+    - nl_labels
+    - semantic_regex
+  run_number: 1
+  require_existing_baseline_annotations: true   # pas d'annotation baseline → erreur (jamais fabriquée)
+  skip_missing_annotations: false               # true → features sans annotation ignorées (log), sans erreur
+
+# Modèle de validation — proxy open-weight PAR DÉFAUT (Règle 5).
+# Mettre enabled=false uniquement si un accès direct aux activations d'un modèle
+# de production est obtenu (fournir alors les chemins d'accès dans agents/steerer.py).
+proxy_model:
+  enabled: true
+  name: "EleutherAI/pythia-6.9b"
+  sae_release: "pythia-6.9b-res-jb"
+
+# Baselines d'ANNOTATION (comparées sur ensemble de features partagé — Règle 7)
+baselines:
+  - nl_labels
+  - semantic_regex        # implémentation OFFICIELLE de Boggust et al. (apple/ml-semantic-regex)
+  - keyword_tags
+  - morphorepr_shuffled
+
+# Contrôles d'INTERVENTION (Phase 4) — au-delà du contrôle d'annotation mélangé
+intervention_controls:
+  # v6.9.0 : run_intervention_controls() est IMPLÉMENTÉ pour random_feature_same_layer,
+  # matched_activation_freq, random_direction_same_norm, negative_steering, prompt_only.
+  # diffmean_reft reste NON implémenté (NotImplementedError si demandé). Phase DÉSACTIVÉE par
+  # défaut (run_in_pipeline=false) ; métriques SECONDAIRES uniquement (jamais le score primaire).
+  run_in_pipeline: false
+  # Clés booléennes héritées (compat) : un contrôle est exécuté s'il est listé dans controls_to_run
+  # OU (à défaut de controls_to_run) si sa clé booléenne est true.
+  random_feature_same_layer: true    # feature SAE aléatoire de même couche
+  random_direction_same_norm: true   # direction aléatoire de même norme que W_dec[target]
+  matched_activation_freq: true      # feature à fréquence d'activation comparable
+  negative_steering: true            # -magnitude (target = control)
+  prompt_only: true                  # étiquette dans le prompt, sans steering
+  diffmean_reft: true                # baselines supervisées DiffMean / ReFT — NON implémenté en v6.9.0
+  # Nouveaux paramètres v6.9.0
+  strict_controls: true              # contrôle activé mais absent/non implémenté → RuntimeError ;
+                                     # false → skip explicite SANS verdict
+  score_controls: true               # scorer les contrôles (métriques secondaires) après production
+  controls_to_run:                   # liste explicite (prioritaire sur les clés booléennes)
+    - random_feature_same_layer
+    - matched_activation_freq
+    - random_direction_same_norm
+    - negative_steering
+    - prompt_only
+  prompt_only_annotation_source: "morphorepr"   # annotation injectée dans le prompt (morphorepr|nl_description)
+  random_direction_seed_mode: "feature_uid"     # seed dérivée de (seed, target_feature_uid, control_name)
+  matched_activation_freq_log_eps: 1.0e-9       # eps du matching en distance log-fréquence
+
+# Contrôle mélangé
+shuffle_control:
+  n_repeats: 10
+  within_split: true
+  max_term_diff: 1
+  preserve_coefficients: true
+  # Le gros des shuffles est scoré par classifieurs (pas le juge LLM) pour borner le coût ;
+  # mais une FRACTION passe par le MÊME chemin predictor+juge que le traitement, afin de
+  # calibrer la comparabilité (sinon le "null" n'est pas comparable à la métrique principale).
+  # La métrique primaire est DÉTERMINISTE (prédicteur + classifieurs, Règle 8) ; le contrôle
+  # mélangé est scoré par CE MÊME chemin déterministe (scored_by='deterministic'). Une FRACTION
+  # est en outre passée au juge LLM qualitatif (scored_by='llm_qualitative') pour audit seulement.
+  use_llm_judge: false
+  llm_qualitative_audit_fraction: 0.2
+  # Généré et évalué sur evaluation_split UNIQUEMENT ; répétitions agrégées avant IC
+  evaluation_split: "random"
+
+# Budget
+budget:
+  max_cost_usd: 150.0                # mettre à jour après estimation pilot run
+  alert_at_usd: 75.0
+  abort_on_exceed: true
+  estimate_before_submit: true       # estimer le coût d'un batch AVANT soumission (Section 5.2)
+
+# Seuils go/no-go (random split uniquement)
+thresholds:
+  coverage_easy_min: 0.65
+  coverage_random_min: 0.45
+  coverage_hard_min: 0.20
+  fidelity_auc_min: 0.60
+  causal_validity_floor: 0.50        # plancher de macro-F1 global. Critères principaux :
+                                     #  - vs NL : SUPÉRIORITÉ (IC de la diff appariée excluant 0)
+                                     #  - vs Semantic Regexes : NON-INFÉRIORITÉ (borne basse > -nim_delta)
+  nim_delta: 0.05                    # marge de non-infériorité pré-enregistrée (macro-F1)
+  root_jaccard_min: 0.60
+  human_audit_jaccard_min: 0.60
+  free_root_rate_max: 5.0
+
+# Méthodologie statistique
+stats:
+  causal_score: "macro_f1_global_pairs"   # macro-F1 GLOBAL sur tous les couples (feature, prop. robuste)
+                                          # — PAS par feature puis moyenné (instable, trop peu de classes/feature)
+  per_feature_macro_f1: "secondary"       # le score par feature reste rapporté en métrique secondaire
+  comparison: "paired"                    # différence appariée (mêmes features)
+  bootstrap_resamples: 10000
+  bootstrap_cluster_unit: "feature"       # rééchantillonnage CLUSTERISÉ par feature
+  stratify_by_split: true
+  superiority_vs: ["nl_labels"]           # cibles évaluées en supériorité
+  non_inferiority_vs: ["semantic_regex"]  # cibles évaluées en non-infériorité (marge nim_delta)
+  end_to_end_utility: true                # rapporter couverture × score causal (+ score intégré)
+  uncovered_policy: "abstention_or_zero"  # règle pré-enregistrée pour l'utilité end-to-end
+  multiple_comparison_primary: "holm"            # Holm-Bonferroni (comparaisons principales)
+  multiple_comparison_exploratory: "benjamini_hochberg"  # FDR (analyses exploratoires)
+  prediction_failure_policy: "zero_for_property"  # échec de prédiction => score nul pour la propriété
+
+# Batch API (Anthropic) — la plupart des batchs finissent < 1h, accessibles à la fin
+# ou après 24h ; ils expirent à 24h. 2h était trop court (échec artificiel possible).
+batch:
+  poll_interval_seconds: 60
+  max_wait_seconds: 86400
+
+# Seed de reproductibilité (sélection du sous-échantillon, contrôle mélangé, clustering)
+seed: 42

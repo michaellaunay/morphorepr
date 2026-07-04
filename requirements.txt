@@ -1,0 +1,7 @@
+# Core
+pyyaml
+torch            # used by agents/steerer.py (real) and tests
+# Test
+pytest>=7
+# Heavy / optional (mocked in tests/conftest.py; needed only for real model runs):
+#   anthropic, transformer-lens, sae-lens, spacy, transformers

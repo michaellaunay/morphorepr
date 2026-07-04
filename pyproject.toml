@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "morphorepr"
+version = "6.10.0"
+description = "MorphoRepr — controlled morphological language for SAE feature description (code repository)"
+requires-python = ">=3.11"
+dependencies = ["pyyaml"]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pyyaml", "torch"]
+heavy = ["anthropic", "transformer-lens", "sae-lens", "spacy", "transformers"]
+
+[tool.setuptools]
+packages = ["agents", "utils", "classifiers", "classifiers.calibration", "baselines"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

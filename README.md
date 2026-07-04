@@ -435,6 +435,8 @@ Through v6.9.0, the test-procedure Markdown embedded the implementation code inl
 
 The next milestone (v6.10.0) materializes the repository described above, ports the existing tests to native `pytest` (with `conftest.py`), fixes the Phase 4 phase order (intervention controls must run **after** MorphoRepr prediction and scoring), and wires an opt-in end-to-end Phase 4 dev run via `configs/dev_phase4.yaml`, validated by a fakes-backed orchestration test plus a real opt-in test (`MORPHOREPR_RUN_DEV_PHASE4=1`). Phase 4 stays disabled by default in `configs/run_v1.yaml`; no full-run claim is auto-enabled. Rationale and the full plan: `docs/morphorepr_note_etape_orientation_v6.10.0.md`.
 
+**v6.10.0 — step 1 done (repository materialized).** The Python code has been extracted from the v6.9.0 procedure into real files (`agents/`, `utils/`, `classifiers/`, `baselines/`, `db/schema.sql`, `configs/run_v1.yaml`, `tests/`) and the test suite now runs under native `pytest` (no extraction harness): **121 passed, 1 skipped** (the opt-in slow steering test). The frozen `docs/morphorepr_test_procedure_v6.9.0.md` remains the methodological reference. Modules not implemented as code blocks in the procedure (e.g. `agents/{loader,encoder,ranker,…}`, `classifiers/{tense,code_presence,modality}`, annotation baselines) are present as clearly-marked stubs, to be implemented in the Phase 4 orchestrator step.
+
 ---
 
 ## Paper
