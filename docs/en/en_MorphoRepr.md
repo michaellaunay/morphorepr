@@ -11,8 +11,8 @@ michaellaunay@logikascium.com
 ---
 
 *Preprint — position paper and evaluation protocol — prepared for submission to arXiv cs.CL / HAL*  
-*Version 0.29 — June 2026*  
-*Replaces version 0.28. No experimental results are claimed in this version; results will be reported after the pipeline has been executed.*
+*Version 0.30 — July 2026*  
+*Replaces version 0.29. No experimental results are claimed in this version; results will be reported after the pipeline has been executed.*
 
 **Version note:** this is the long HAL/arXiv version. A shorter workshop version (core concept, main metrics, condensed appendices) is available on request and will be submitted separately to venues focused on interpretability and human-centered AI. The detailed list of changes from previous versions appears in Appendix C.
 
@@ -56,7 +56,7 @@ This paper is a **position paper and evaluation protocol**. It presents a formal
 
 To clarify what is and is not claimed, the following table aligns each claim with its status in the present version and the planned evidence for testing it.
 
-| Claim | Status (v0.29) | Planned evidence |
+| Claim | Status (v0.30) | Planned evidence |
 |------|----------------|------------------|
 | MorphoRepr is more compact than NL labels | Hypothesis | length / entropy / user study |
 | MorphoRepr is more consistent than NL labels | Hypothesis | Jaccard over two runs |
@@ -306,7 +306,7 @@ The pipeline consists of five phases, plus a planned human audit, user study, an
 
 **Objective:** build a stratified corpus of SAE features with activation examples.
 
-**Data sources:** public SAEs through the Neuronpedia API; SAE-Bench (EleutherAI); `sae_lens`. **Model/layer consistency:** all features in a run come from the same model and, unless otherwise stated, the same layer; in proxy mode (see below), the feature source is the proxy model, and the Claude 3 Sonnet examples in Section 3.4 remain purely illustrative.
+**Data sources:** public SAEs through the Neuronpedia API; SAEBench (Karvonen et al., 2025); `sae_lens`. **Model/layer consistency:** all features in a run come from the same model and, unless otherwise stated, the same layer; in proxy mode (see below), the feature source is the proxy model, and the Claude 3 Sonnet examples in Section 3.4 remain purely illustrative.
 
 The *loader agent* retrieves, for each feature, its index, its top 20 activation examples with activation values, its existing interpretability score, activation frequency, layer, and activation statistics (including the 99th percentile, for normalization and OOD detection). The *ranking agent* constructs **three disjoint evaluation splits**, sampling the random set **first** so that it remains a true representative sample (not a “middle set” from which easy and hard features have already been removed):
 
@@ -487,7 +487,7 @@ Storage:                 SQLite (feature corpus) + JSON (versioned lexicon)
 Output classifiers:      spaCy (syntax/NER/dependencies),
                          transformer-based sentiment classifier (valence),
                          custom classifiers for code/modality; confusion matrices reported
-Evaluation:              SAE-Bench (EleutherAI) as external benchmark
+Evaluation:              SAEBench (Karvonen et al., 2025) as external benchmark
 Baselines:               NL labels, Semantic Regexes (official code), keyword tags,
                          within-split shuffled MorphoRepr; DiffMean/ReFT as intervention controls
 Checkpoints:             complete pipeline-state snapshot after each phase
@@ -552,13 +552,15 @@ The agentic and judging tasks in the pipeline may be executed with different mod
 
 *This section sketches longer-term research directions conditional on the experimental results from Section 4. It is not a contribution of the present paper.*
 
-If MorphoRepr proves causally valid as an annotation system, two natural extensions emerge.
+If MorphoRepr proves causally valid as an annotation system, three natural extensions emerge.
 
 **MorphoRepr-Edit.** If MorphoRepr expressions can be validated as causally predictive at the feature level, they might eventually serve as a structured addressing space for model editing (ROME/MEMIT-style). This is highly speculative: MorphoRepr addresses SAE latents, not weight matrices directly, and mapping latents to editable weight directions requires substantial additional work.
 
 **MorphoRepr-Memory.** A hybrid memory architecture inspired by CLS theory could combine an external vector store (episodic buffer indexed by MorphoRepr embeddings) with selective parametric consolidation via LoRA, producing a human-auditable retrieval interface.
 
-These directions are proposed as a three-paper research program: the present paper (framework and protocol), a second paper (experimental results), and a third paper (editing or memory application).
+**MorphoRepr-Audit (latent inter-agent communication).** Recent frameworks make several LLM agents collaborate directly in latent space, without an intermediate text channel: in RecursiveMAS (Yang et al., 2026), only hidden states circulate between heterogeneous models through a small residual-transfer module, and only the final round decodes text. This shift removes precisely the readable trace that a human auditor could inspect in a textual multi-agent system. If MorphoRepr is validated at the feature level, a natural extension is to probe these latent channels — applying an SAE to the stream that is actually transmitted, then decoding the active features into MorphoRepr annotations — in order to produce a controlled transcript of otherwise unreadable communication. This is also speculative: it assumes an SAE adapted to the transmitted space (the inter-agent projection shifts the activation distribution), and the causal validity of annotations in that space would have to be re-established, not assumed.
+
+These directions are proposed as a three-paper research program: the present paper (framework and protocol), a second paper (experimental results), and a third paper (editing, memory, or audit application).
 
 ---
 
@@ -661,7 +663,9 @@ Jørgensen, M. G., & Hansen, L. K. (2026). *Steering LLMs? Actually, Sparse Auto
 
 Jing, Y., Yao, Z., Guo, H., Ran, L., Wang, X., Hou, L., & Li, J. (2025). *LinguaLens: Towards Interpreting Linguistic Mechanisms of Large Language Models via Sparse Auto-Encoder*. EMNLP 2025 (Main Conference). arXiv:2502.20344.
 
-Kim, B., Wattenberg, M., Gilmer, J., Cai, C., Wexler, J., Viegas, F., & Sayres, R. (2018). *Interpretability Beyond Classification Accuracy: Quantifying Interpretability of Machine Learning Models via Concept Activation Vectors (TCAV)*. ICML 2018.
+Kim, B., Wattenberg, M., Gilmer, J., Cai, C., Wexler, J., Viegas, F., & Sayres, R. (2018). *Interpretability Beyond Feature Attribution: Quantitative Testing with Concept Activation Vectors (TCAV)*. ICML 2018.
+
+Karvonen, A., Rager, C., Lin, J., Tigges, C., Bloom, J., Chanin, D., Lau, Y.-T., Farrell, E., McDougall, C., Ayonrinde, K., Till, D., Wearden, M., Conmy, A., Marks, S., & Nanda, N. (2025). *SAEBench: A Comprehensive Benchmark for Sparse Autoencoders in Language Model Interpretability*. ICML 2025. arXiv:2503.09532.
 
 Kuhn, T. (2014). *A Survey and Classification of Controlled Natural Languages*. Computational Linguistics, 40(1), 121–170.
 
@@ -684,6 +688,8 @@ Paulo, G., Mallen, A., Juang, C., & Belrose, N. (2024). *Automatically Interpret
 Turner, A., Thiergart, L., Udell, D., Leech, G., Mini, U., & MacDiarmid, M. (2023). *Activation Addition: Steering Language Models Without Optimization*. arXiv:2308.10248.
 
 Wu, Z., Arora, A., Geiger, A., Wang, Z., Huang, J., Jurafsky, D., Manning, C. D., & Potts, C. (2025). *AxBench: Steering LLMs? Even Simple Baselines Outperform Sparse Autoencoders*. arXiv:2501.17148.
+
+Yang, X., Zou, J., Pan, R., Qiu, R., Lu, P., Diao, S., Jiang, J., Tong, H., Zhang, T., Buehler, M. J., He, J., & Zou, J. (2026). *Recursive Multi-Agent Systems*. arXiv:2604.25917.
 
 Zamenhof, L. L. (1887). *Unua Libro* [International Language]. Warsaw.
 
@@ -876,6 +882,24 @@ as values.
 
 ## Appendix C: Changes from previous versions
 
+### C.1 — Changes v0.29 → v0.30 (coherence and reference review)
+
+This version applies a tool-assisted coherence review (paper ↔ protocol ↔ reference parser) and online reference checks. No scientific claim is modified; the “position paper and protocol” status is unchanged.
+
+**Corrected references (verified online).** Corrected the author list for Cunningham et al. (2023) — v0.29 mistakenly mentioned “Sherburn” and “Tuck”; the actual authors are Cunningham, Ewart, Riggs, Huben, and Sharkey. Corrected the title of Kim et al. (2018): *Interpretability Beyond Feature Attribution: Quantitative Testing with Concept Activation Vectors (TCAV)*. Restored the alphabetical ordering of Jing/Jørgensen.
+
+**Corrected factual attributions.** Replaced “SAE-Bench (EleutherAI)” with **SAEBench (Karvonen et al., 2025; arXiv:2503.09532)** and added the reference (Sections 4.2 and 4.4). Reformulated the provenance of the examples in Section 3.4: indices and descriptions are **illustrative, in the style of** public feature-exploration interfaces (Anthropic’s Claude 3 Sonnet feature visualizer; Neuronpedia for open-model SAEs) — Neuronpedia does not host Claude 3 Sonnet features.
+
+**Appendix B.3 aligned with the canonical robust properties.** The prediction prompt previously listed five robust properties with `past_tense` and `future_tense` separated; it now lists the **four** canonical properties (`negation_presence`, `tense`, `code_presence`, `conditional_modality`), consistently with the body of the paper (Section 4.2) and with the baseline prediction prompts in the protocol — following the symmetry rule (“same set of properties”).
+
+**Orphan references resolved.** Turner et al. (2023) is now cited in the steering protocol (Section 4.2, addition of the decoder direction to the residual stream); Object Management Group (2016) is cited in Section 3.5; Zamenhof (1887) is cited in Section 7.2.
+
+**Research agenda (Section 5).** Added a third speculative direction, **MorphoRepr-Audit**: probing latent inter-agent communication channels (RecursiveMAS — Yang et al., 2026, reference added) by decoding, through an SAE, the active features of the transmitted stream into MorphoRepr annotations.
+
+**Tool-assisted verification (no change).** The 11 word forms and the 8 example expressions in the paper parse with the reference parser (parameterized `test_examples_from_paper` in the repository); the morpheme inventory in Section 3.3, Appendix A, and the parser is identical.
+
+**Polish.** Harmonized the gender convention for “feature” in the French text; reformulated one sentence in Section 2.2; renumbered Appendix C (v0.29 contained two “C.2” sections).
+
 ### C.2 — Changes v0.28 → v0.29 (open-model policy)
 
 This version adds an **open-model reproducibility policy**, in response to calls from parts of the scientific community to prioritize open-source or open-weight models in research in order to guarantee reproducibility of results. Changes:
@@ -885,7 +909,7 @@ This version adds an **open-model reproducibility policy**, in response to calls
 - **Associated evaluation protocol.** The policy is implemented through the `model_runs` table, propagation of `model_run_id` to outputs and metrics, guards that prevent a primary claim from relying on a Tier C model, required artifacts before the full run, and an extended freeze checklist. See test procedure v6.5.x (≥ v6.5.3).
 - **Compatibility.** The proprietary condition remains available as a reference/robustness condition; no experimental results are claimed; the “position paper and protocol” status is unchanged.
 
-### C.1 — Changes v0.27 → v0.28 (consolidated critical review)
+### C.3 — Changes v0.27 → v0.28 (consolidated critical review)
 
 This version responds to a second critical review. Main changes:
 
@@ -917,7 +941,7 @@ This version responds to a second critical review. Main changes:
 
 **Polish.** English title shortened; “submitted to arXiv / HAL” → “prepared for submission”; harmonized “description” (NL) vs “annotation” (MorphoRepr) in revised sections.
 
-### C.3 — Changes v0.26 → v0.27 (recap)
+### C.4 — Changes v0.26 → v0.27 (recap)
 
 This version incorporates a consolidated critical review. Main changes:
 
@@ -953,7 +977,7 @@ This version incorporates a consolidated critical review. Main changes:
 
 ---
 
-*Version 0.29 — June 2026*  
+*Version 0.30 — July 2026*  
 *Michaël Launay — michaellaunay@logikascium.com*  
 *Logikascium EURL — https://www.logikascium.com*  
 *GitHub: https://github.com/michaellaunay/morphorepr*
