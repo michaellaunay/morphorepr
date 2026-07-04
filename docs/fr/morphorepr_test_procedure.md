@@ -5,6 +5,10 @@
 
 ---
 
+> **Note d'étape (docs-as-code, v6.10.0 — étape 1 réalisée).** Depuis la v6.10.0, le **dépôt Python est la source de vérité du code** (option B, actée dans `morphorepr_note_etape_orientation_v6.10.0.md`). Le dépôt a été **matérialisé** à partir du présent document, et la suite s'exécute en `pytest` natif : **121 passed / 1 skipped** (le décompte historique « 69 » correspondait au sous-ensemble rejoué par l'ancien harnais d'extraction). Les blocs de code ci-dessous sont un **instantané v6.9.0 conservé pour la référence méthodologique** ; en cas de divergence, **le dépôt fait foi**. Deux divergences connues, au niveau des tests uniquement (code de production inchangé), corrigées dans le dépôt et non répercutées ici : (1) `tests/test_model_providers.py` — la fixture `_PRIMARY` fournit désormais `inference_env_hash` (exigé par `_REQUIRED_FULL_RUN_ARTIFACTS`) ; (2) `tests/test_model_run_propagation.py` — `ensure_legacy_model_run("r1")` est appelé avant de passer explicitement `model_run_id="r1::legacy"` (contrainte FK, `PRAGMA foreign_keys=ON`). Certaines consignes « à faire » de ce document (p. ex. la mise à jour du README) ont été réalisées depuis. Le prochain chantier (orchestrateur Phase 4 end-to-end, ordre corrigé `p4_steer → p4_predict → p4_predict_baselines → p4_score → p4_controls → p4_dev_summary`) est spécifié dans la note d'étape.
+
+---
+
 ## Principes directeurs
 
 **Règle 1 — Séparation des rôles ; run gelé et auditable**
