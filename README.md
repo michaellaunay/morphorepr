@@ -29,7 +29,7 @@ Read approximately as: *“not having acted physically / action-negation in a pa
 
 MorphoRepr does **not** claim to decode the internal representations of LLMs. It encodes structured, inspectable hypotheses about SAE features. These hypotheses must be evaluated through fidelity tests, activation prediction, and causal intervention experiments on a model where SAE activations are accessible.
 
-The current paper is **v0.29**. The current test procedure is **v6.9.0**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
+The current paper is **v0.30** (`docs/fr/fr_MorphoRepr.md`; the English translation `docs/en/en_MorphoRepr.md` is currently at v0.29). The current test procedure is **v6.9.0**. The project is still a **position paper and experimental specification**: no full scientific run has been completed yet, and no causal validity result is claimed at this stage.
 
 Starting with paper v0.29 and procedure v6.5.x, the protocol adopts an **open-weight reproducibility policy**: primary scientific claims are designed to be reproducible with open-weight or fully open models, and proprietary models (e.g. Anthropic) are used only as a secondary reference / comparison condition. See [Reproducibility and Open-Weight Models](#reproducibility-and-open-weight-models).
 
@@ -141,7 +141,7 @@ model_run_id  →  one (provider, model, revision, inference environment) within
 
 ## Evaluation Protocol
 
-The v0.29 paper and v6.9.0 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
+The v0.30 paper and v6.9.0 procedure define an evaluation protocol centered on reproducibility, coverage, fidelity, and causal predictive validity.
 
 ### Feature splits
 
@@ -294,7 +294,7 @@ Baseline prediction (**Option B**, v6.8.0) is **wired for `nl_labels` (superiori
 
 Intervention controls (**v6.9.0**) are now **implemented** via `steerer.run_intervention_controls()` for five causal controls — `random_feature_same_layer`, `matched_activation_freq`, `random_direction_same_norm`, `negative_steering`, `prompt_only` — producing real `text_before`/`text_after` scored by the **same deterministic path** as the treatment. This is the **first schema change since v6.5.3**: a dedicated `intervention_control_results` table (a control sometimes has a distinct target feature and control feature; never mixed into `steering_results`). `causal_scorer.load_intervention_control_pairs()` + `score_intervention_controls()` write **secondary metrics only** (`intervention_control_macro_f1:<name>`, `intervention_control_paired_diff:<name>` — never the primary score), with the paired primary − control difference (feature-clustered bootstrap) and coverage. `diffmean_reft` is **not implemented** (`NotImplementedError` if enabled). Strictly model/split/`intervention_space`-aware; OOD policy respected; no LLM judge. Controls stay **off by default** (`intervention_controls.run_in_pipeline=false`).
 
-Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`, `causal_scoring.run_in_pipeline=false`, `intervention_controls.run_in_pipeline=false`) and is **not auto-enabled**; `assert_steering_ready()` must pass on a controlled dev run before any pilot/full run with steering. The v6.9.0 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering, a minimal MorphoRepr causal score, baseline comparisons, and intervention controls on the open-weight proxy**, but it does **not** claim full causal validation: no published scientific result is asserted yet. The scientific claims of the paper (v0.29) are unchanged.
+Phase 4 is **disabled by default** (`steering.run_in_pipeline=false`, `causal_scoring.run_in_pipeline=false`, `intervention_controls.run_in_pipeline=false`) and is **not auto-enabled**; `assert_steering_ready()` must pass on a controlled dev run before any pilot/full run with steering. The v6.9.0 procedure is stable for a **dev run of the non-Phase-4 plumbing** and now also allows a **testable dev run of Phase 4 steering, a minimal MorphoRepr causal score, baseline comparisons, and intervention controls on the open-weight proxy**, but it does **not** claim full causal validation: no published scientific result is asserted yet. The scientific claims of the paper (v0.30) are unchanged.
 
 ---
 
@@ -397,7 +397,7 @@ morphorepr-pipeline/
 
 ## Current Status
 
-This repository accompanies the v0.29 position paper and the v6.9.0 test procedure. No full experimental run has been completed yet.
+This repository accompanies the v0.30 position paper and the v6.9.0 test procedure. No full experimental run has been completed yet.
 
 | Component | Status |
 |-----------|--------|
@@ -433,23 +433,26 @@ This repository accompanies the v0.29 position paper and the v6.9.0 test procedu
 
 Through v6.9.0, the test-procedure Markdown embedded the implementation code inline. **From v6.10.0 the Python repository becomes the canonical source of code** (docs-as-code): the Markdown is retained for the scientific protocol, methodological rules, architecture decisions (ADR), and changelog, while executable code, `pytest` tests, configs, prompts, and `db/schema.sql` live as real versioned files. No move to DOCX/PDF — Markdown plus versioned code/config is the right form for a reproducible scientific protocol.
 
-The next milestone (v6.10.0) materializes the repository described above, ports the existing tests to native `pytest` (with `conftest.py`), fixes the Phase 4 phase order (intervention controls must run **after** MorphoRepr prediction and scoring), and wires an opt-in end-to-end Phase 4 dev run via `configs/dev_phase4.yaml`, validated by a fakes-backed orchestration test plus a real opt-in test (`MORPHOREPR_RUN_DEV_PHASE4=1`). Phase 4 stays disabled by default in `configs/run_v1.yaml`; no full-run claim is auto-enabled. Rationale and the full plan: `docs/morphorepr_note_etape_orientation_v6.10.0.md`.
+The next milestone (v6.10.0) materializes the repository described above, ports the existing tests to native `pytest` (with `conftest.py`), fixes the Phase 4 phase order (intervention controls must run **after** MorphoRepr prediction and scoring), and wires an opt-in end-to-end Phase 4 dev run via `configs/dev_phase4.yaml`, validated by a fakes-backed orchestration test plus a real opt-in test (`MORPHOREPR_RUN_DEV_PHASE4=1`). Phase 4 stays disabled by default in `configs/run_v1.yaml`; no full-run claim is auto-enabled. Rationale and the full plan: `docs/fr/morphorepr_note_etape_orientation_v6.10.0.md` (English: `docs/en/en_morphorepr_milestone_note_orientation_v6.10.0.md`).
 
-**v6.10.0 — step 1 done (repository materialized).** The Python code has been extracted from the v6.9.0 procedure into real files (`agents/`, `utils/`, `classifiers/`, `baselines/`, `db/schema.sql`, `configs/run_v1.yaml`, `tests/`) and the test suite now runs under native `pytest` (no extraction harness): **121 passed, 1 skipped** (the opt-in slow steering test). The frozen `docs/morphorepr_test_procedure_v6.9.0.md` remains the methodological reference. Modules not implemented as code blocks in the procedure (e.g. `agents/{loader,encoder,ranker,…}`, `classifiers/{tense,code_presence,modality}`, annotation baselines) are present as clearly-marked stubs, to be implemented in the Phase 4 orchestrator step.
+**v6.10.0 — step 1 done (repository materialized).** The Python code has been extracted from the v6.9.0 procedure into real files (`agents/`, `utils/`, `classifiers/`, `baselines/`, `db/schema.sql`, `configs/run_v1.yaml`, `tests/`) and the test suite now runs under native `pytest` (no extraction harness): **121 passed, 1 skipped** (the opt-in slow steering test). The frozen v6.9.0 procedure remains the methodological reference (`docs/fr/morphorepr_test_procedure.md`; English translation: `docs/en/morphorepr_test_procedure.md`). Modules not implemented as code blocks in the procedure (e.g. `agents/{loader,encoder,ranker,…}`, `classifiers/{tense,code_presence,modality}`, annotation baselines) are present as clearly-marked stubs, to be implemented in the Phase 4 orchestrator step.
+
+**v6.10.0 — step 1 cleanup.** Housekeeping pass before the orchestrator milestone: added `.gitignore`; fixed `utils.config_utils.hash_config()` to hash the YAML **content** (it previously hashed the path string passed by the orchestrator, defeating the config-integrity guard — now covered by `tests/test_config_hash.py`); added a strict-xfail tripwire encoding the **target** Phase-4 order (`tests/test_orchestrator_phases.py` — the known ordering bug stays in place until step 2); materialized the two baseline predictor prompts verbatim from the frozen procedure into `prompts/` (see `prompts/README.md`); added a minimal `db/lexicon.json`, plus `data/probes/.gitkeep` and `logs/.gitkeep` (the orchestrator opens `logs/pipeline.log` at import time). Documentation is now bilingual under `docs/fr/` and `docs/en/`, with course material under `docs/ressources/`.
 
 ---
 
 ## Paper
 
-> Launay, M. (2026). *MorphoRepr: A Morphologically Structured Controlled Language for SAE Feature Description in LLMs — A Position Paper and Evaluation Protocol*. Version 0.29.
+> Launay, M. (2026). *MorphoRepr: A Morphologically Structured Controlled Language for SAE Feature Description in LLMs — A Position Paper and Evaluation Protocol*. Version 0.30.
 
 - **HAL:** https://hal.science/hal-05649380
 - **arXiv:** https://arxiv.org/abs/2606.XXXXX
-- **PDF:** `docs/paper_v0.29.pdf`
-- **Test procedure:** `docs/morphorepr_test_procedure_v6.9.0.md`
-- **Orientation note (v6.10.0):** `docs/morphorepr_note_etape_orientation_v6.10.0.md`
+- **Source (FR, current):** `docs/fr/fr_MorphoRepr.md` (v0.30)
+- **Source (EN):** `docs/en/en_MorphoRepr.md` (v0.29 — translation update pending)
+- **Test procedure:** `docs/fr/morphorepr_test_procedure.md` (v6.9.0, frozen) · EN: `docs/en/morphorepr_test_procedure.md`
+- **Orientation note (v6.10.0):** `docs/fr/morphorepr_note_etape_orientation_v6.10.0.md` · EN: `docs/en/en_morphorepr_milestone_note_orientation_v6.10.0.md`
 
-The v0.29 paper covers:
+The v0.30 paper covers:
 
 - the MorphoRepr grammar and morpheme inventory;
 - the distinction between confidence and activation coefficients;

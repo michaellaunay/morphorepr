@@ -1,0 +1,5 @@
+{
+  "lexicon_version": "v1.0",
+  "free_roots": {},
+  "_note": "Placeholder minimal (cleanup v6.10.0). Les racines libres induites en Phase 2 sont enregistrées ici avec définition, portée, cluster inducteur et horodatage (papier §3.3, gouvernance §7.3). Hash canonique via utils.prompt_utils.hash_lexicon_canonical()."
+}

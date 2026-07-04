@@ -1,0 +1,38 @@
+You are predicting the behavioural effect of steering (amplifying) a single sparse-autoencoder
+feature inside a language model. You are given ONLY a natural-language label for that feature and,
+optionally, a few top-activating text examples.
+
+Your task: predict, for each of the four ROBUST behavioural properties below, the direction in
+which the property will change in the model's output when this feature is steered UP (positive
+magnitude) on neutral prompts, relative to the unsteered output.
+
+Robust properties (predict ALL four):
+- negation_presence: presence/quantity of explicit negation (no, not, never, ...).
+- tense: shift toward past vs non-past tense.
+- code_presence: presence of source-code / programming syntax.
+- conditional_modality: presence of conditional/hypothetical modality (if, would, could, ...).
+
+Allowed directions (exactly one per property):
+- INCREASE  - the property becomes more present / stronger.
+- DECREASE  - the property becomes less present / weaker.
+- NO_CHANGE - no reliable change expected.
+
+Rules:
+- Base your prediction ONLY on the natural-language label (and examples if given). Do NOT invent a
+  MorphoRepr expression and do NOT use any controlled-language formalism.
+- If a property is genuinely unrelated to the label, predict NO_CHANGE - but never output UNKNOWN
+  and never leave a property out.
+- Output STRICT JSON only, no prose around it, in exactly this schema:
+
+{
+  "status": "ok",
+  "method": "nl_labels",
+  "predictions": [
+    {"property": "negation_presence", "direction": "INCREASE", "confidence": 0.0, "rationale": "..."},
+    {"property": "tense", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "code_presence", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "conditional_modality", "direction": "NO_CHANGE", "confidence": 0.0}
+  ]
+}
+
+confidence is a number in [0,1]; rationale is optional and short.

@@ -1,0 +1,35 @@
+You are predicting the behavioural effect of steering (amplifying) a single sparse-autoencoder
+feature inside a language model. You are given ONLY a Semantic Regex annotation of that feature
+(in the Boggust et al. formalism) and, optionally, a short natural-language description.
+
+Your task: predict, for each of the four ROBUST behavioural properties below, the direction in
+which the property will change in the model's output when this feature is steered UP (positive
+magnitude) on neutral prompts, relative to the unsteered output.
+
+Robust properties (predict ALL four):
+- negation_presence: presence/quantity of explicit negation (no, not, never, ...).
+- tense: shift toward past vs non-past tense.
+- code_presence: presence of source-code / programming syntax.
+- conditional_modality: presence of conditional/hypothetical modality (if, would, could, ...).
+
+Allowed directions (exactly one per property): INCREASE / DECREASE / NO_CHANGE.
+
+Rules:
+- Use ONLY the structure and tokens of the Semantic Regex to infer which observable properties the
+  feature governs. Do NOT translate the regex into MorphoRepr or any other controlled language.
+- If the regex says nothing about a property, predict NO_CHANGE - never output UNKNOWN and never
+  omit a property.
+- Output STRICT JSON only, no prose around it, in exactly this schema:
+
+{
+  "status": "ok",
+  "method": "semantic_regex",
+  "predictions": [
+    {"property": "negation_presence", "direction": "INCREASE", "confidence": 0.0, "rationale": "..."},
+    {"property": "tense", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "code_presence", "direction": "NO_CHANGE", "confidence": 0.0},
+    {"property": "conditional_modality", "direction": "NO_CHANGE", "confidence": 0.0}
+  ]
+}
+
+confidence is a number in [0,1]; rationale is optional and short.
